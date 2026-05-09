@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.reader.data.model.MediaFolder
 import com.example.reader.data.repository.MediaRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +34,8 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
                 repository.getAllFolders().collect { folders ->
                     _state.value = FolderListState(folders = folders, isLoading = false)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _state.value = FolderListState(isLoading = false, error = e.message ?: "加载失败")
             }

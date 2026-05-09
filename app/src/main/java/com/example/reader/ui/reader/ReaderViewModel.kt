@@ -6,6 +6,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.example.reader.data.model.MediaItem
 import com.example.reader.data.repository.MediaRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,7 +27,7 @@ class ReaderViewModel(application: Application, savedStateHandle: SavedStateHand
     AndroidViewModel(application) {
 
     private val repository = MediaRepository(application.contentResolver)
-    private val folderPath: String = savedStateHandle["folderPath"] ?: ""
+    private val parentId: Long = savedStateHandle["parentId"] ?: -1L
 
     private val _state = MutableStateFlow(ReaderState())
     val state: StateFlow<ReaderState> = _state.asStateFlow()
@@ -38,13 +39,16 @@ class ReaderViewModel(application: Application, savedStateHandle: SavedStateHand
     private fun loadMedia() {
         viewModelScope.launch {
             try {
-                repository.getMediaByFolder(folderPath).collect { items ->
+                repository.getMediaByFolder(parentId).collect { items ->
+                    val folderName = items.firstOrNull()?.folderPath?.substringAfterLast("/") ?: ""
                     _state.value = _state.value.copy(
                         mediaItems = items,
-                        folderName = folderPath.substringAfterLast("/"),
+                        folderName = folderName,
                         isLoading = false
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _state.value = _state.value.copy(isLoading = false, error = e.message ?: "加载失败")
             }

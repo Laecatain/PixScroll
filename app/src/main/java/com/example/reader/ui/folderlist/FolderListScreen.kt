@@ -64,7 +64,7 @@ fun FolderListScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        items(state.folders, key = { it.folderPath }) { folder ->
+        items(state.folders, key = { it.id }) { folder ->
             FolderCard(folder = folder, onClick = { onFolderClick(folder) })
         }
     }

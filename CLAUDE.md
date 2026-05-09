@@ -20,7 +20,7 @@ Kotlin + Jetpack Compose (Material 3), MVVM pattern, no DI framework.
 
 **Key layers**:
 
-- `data/repository/MediaRepository.kt` — All data access via `ContentResolver` querying `MediaStore`. Groups media by `BUCKET_DISPLAY_NAME`. Returns `Flow<List<T>>` with `flowOn(Dispatchers.IO)`.
+- `data/repository/MediaRepository.kt` — All data access via `ContentResolver` querying unified `MediaStore.Files`. Groups by `PARENT` (unique per storage volume). Supports `SortMode` (NAME/DATE/SIZE), `.nomedia` filtering, `IS_PENDING` exclusion (API 29+). Returns `Flow<List<T>>` with `flowOn(Dispatchers.IO)`.
 - `ui/folderlist/` — Folder grid screen. State: `FolderListState` (folders, isLoading, error).
 - `ui/reader/` — Image reader with two modes. State: `ReaderState` (mediaItems, currentMode, currentIndex, isLoading, error).
 - `ui/player/` — Video player using Media3 ExoPlayer with lifecycle-aware pause/resume.
@@ -33,7 +33,7 @@ Kotlin + Jetpack Compose (Material 3), MVVM pattern, no DI framework.
 | Continuous vertical scroll | `ContinuousScrollReader` | `LazyColumn` with zero spacing between images; pinch-to-zoom + double-tap zoom; scroll disabled when zoomed |
 | Horizontal pager | `PagerReader` | `HorizontalPager`; same zoom semantics |
 
-**Navigation**: `navigation/NavGraph.kt` using Navigation Compose. Routes: `folder_list` → `reader/{folderPath}` → `video_player/{videoUri}`. Folder paths are URI-encoded in route arguments.
+**Navigation**: `navigation/NavGraph.kt` using Navigation Compose. Routes: `folder_list` → `reader/{parentId}` (LongType) → `video_player/{videoUri}`.
 
 ## Key Patterns
 

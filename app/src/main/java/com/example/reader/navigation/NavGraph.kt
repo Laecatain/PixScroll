@@ -2,7 +2,6 @@ package com.example.reader.navigation
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -14,10 +13,10 @@ import com.example.reader.ui.reader.ReaderScreen
 
 object Routes {
     const val FOLDER_LIST = "folder_list"
-    const val READER = "reader/{folderPath}"
+    const val READER = "reader/{parentId}"
     const val VIDEO_PLAYER = "video_player/{videoUri}"
 
-    fun reader(folderPath: String) = "reader/${Uri.encode(folderPath)}"
+    fun reader(parentId: Long) = "reader/$parentId"
     fun videoPlayer(videoUri: String) = "video_player/${Uri.encode(videoUri)}"
 }
 
@@ -27,14 +26,14 @@ fun NavGraph(navController: NavHostController) {
         composable(Routes.FOLDER_LIST) {
             FolderListScreen(
                 onFolderClick = { folder ->
-                    navController.navigate(Routes.reader(folder.folderPath))
+                    navController.navigate(Routes.reader(folder.id))
                 }
             )
         }
 
         composable(
             route = Routes.READER,
-            arguments = listOf(navArgument("folderPath") { type = NavType.StringType })
+            arguments = listOf(navArgument("parentId") { type = NavType.LongType })
         ) {
             ReaderScreen(
                 onBack = { navController.popBackStack() },
