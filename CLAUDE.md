@@ -5,7 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Test
 
 ```bash
-# Build (use absolute path — no gradlew wrapper)
+# Build + install to phone (auto-detects device, falls back to build-only)
+bash /e/playground/install.sh
+
+# Build only
 /d/Android/gradle/gradle-8.7/bin/gradle assembleDebug -p /e/playground
 
 # Run all tests (JVM, no device needed)
@@ -51,9 +54,15 @@ Kotlin + Jetpack Compose (Material 3), MVVM, no DI framework.
 
 ## Agent Automation
 
-需求出来 → `/plan`（出方案）→ `/tdd`（写测试先）→ `/code-review`（写完审）→ `/security-review`（提交前审）→ 构建通过 → 自动提交
+### 分级流水线
 
-- 所有审查通过 + `assembleDebug` 成功后，**自动执行 `git add` + `git commit`**，无需等待用户确认提交。
+| 改动类型 | plan | code-review | security-review | 示例 |
+|----------|------|-------------|-----------------|------|
+| 修 typo、改字符串、格式化 | 跳过 | 跳过 | 跳过 | 改文案、format 代码 |
+| 单函数 bug 修复 | 跳过 | 审 | 跳过 | 修 crash、修逻辑 |
+| 新功能、UI 改动 | 必须 | 审 | 跳过 | 加进度条、改布局 |
+| 涉及 IO/URI/权限/用户输入 | 必须 | 审 | 审 | 改文件读取、权限处理 |
+
+- 所有审查通过 + `assembleDebug` 成功后，**自动执行 `git add` + `git commit`**。
 - 任何一步失败则停止，不提交。
-- **必须 plan**：新功能、跨文件改动、多种实现方式可选、改错后重做成本高的事。不确定就问。
-- **可跳过 plan**：单文件小改、修 bug、格式化、已有明确参照的做法。做错了重来成本低的事。
+- **不确定就升级**：拿不准该不该审 → 审；拿不准该不该 plan → plan。

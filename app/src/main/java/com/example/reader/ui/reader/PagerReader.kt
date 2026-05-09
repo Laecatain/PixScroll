@@ -11,6 +11,8 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.*
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
@@ -25,6 +27,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.reader.data.model.MediaItem
+import com.example.reader.ui.theme.ThemeState
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -56,7 +59,7 @@ fun PagerReader(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(MaterialTheme.colorScheme.background)
             .clipToBounds()
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -141,13 +144,16 @@ fun PagerReader(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    IconButton(onClick = { ThemeState.toggle() }) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "返回",
+                            if (ThemeState.isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
+                            contentDescription = "切换主题",
                             tint = Color.White
                         )
                     }
-                    Spacer(modifier = Modifier.weight(1f))
                     TextButton(onClick = onSwitchMode) {
                         Text("连续滚动", color = Color.White)
                     }

@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,7 +29,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.reader.data.model.MediaItem
-import kotlinx.coroutines.launch
+import com.example.reader.ui.theme.ThemeState
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -42,22 +44,27 @@ fun ContinuousScrollReader(
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
-    val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
 
     val isZoomed = scale > 1f
     val totalCount = mediaItems.size
-    val currentIndex = listState.firstVisibleItemIndex.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
-    var sliderValue by remember { mutableFloatStateOf(currentIndex.toFloat()) }
 
-    LaunchedEffect(currentIndex) {
-        sliderValue = currentIndex.toFloat()
+    // Jump target: when set, LazyColumn re-keys at this index, avoiding scroll-through-all-items
+    var jumpTarget by remember { mutableStateOf(0) }
+    var isDragging by remember { mutableStateOf(false) }
+    var sliderValue by remember { mutableFloatStateOf(0f) }
+
+    var visibleIndex by remember { mutableStateOf(0) }
+
+    LaunchedEffect(visibleIndex, isDragging) {
+        if (!isDragging) {
+            sliderValue = visibleIndex.toFloat()
+        }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(MaterialTheme.colorScheme.background)
             .clipToBounds()
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -93,28 +100,34 @@ fun ContinuousScrollReader(
                 }
             }
     ) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    translationX = offsetX
-                    translationY = offsetY
-                },
-            userScrollEnabled = !isZoomed
-        ) {
-            itemsIndexed(mediaItems, key = { _, item -> item.uri ?: item.name }) { _, item ->
-                if (item.isVideo) {
-                    VideoThumbnail(item = item, onClick = { onVideoClick(item) })
-                } else {
-                    AsyncImage(
-                        model = item.uri,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxWidth(),
-                        contentScale = ContentScale.FillWidth
-                    )
+        key(jumpTarget) {
+            val innerState = rememberLazyListState(initialFirstVisibleItemIndex = jumpTarget)
+            val idx = innerState.firstVisibleItemIndex.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
+            LaunchedEffect(idx) { visibleIndex = idx }
+
+            LazyColumn(
+                state = innerState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = offsetX
+                        translationY = offsetY
+                    },
+                userScrollEnabled = !isZoomed
+            ) {
+                itemsIndexed(mediaItems, key = { _, item -> item.uri ?: item.name }) { _, item ->
+                    if (item.isVideo) {
+                        VideoThumbnail(item = item, onClick = { onVideoClick(item) })
+                    } else {
+                        AsyncImage(
+                            model = item.uri,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxWidth(),
+                            contentScale = ContentScale.FillWidth
+                        )
+                    }
                 }
             }
         }
@@ -141,6 +154,13 @@ fun ContinuousScrollReader(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
                     }
                     Spacer(modifier = Modifier.weight(1f))
+                    IconButton(onClick = { ThemeState.toggle() }) {
+                        Icon(
+                            if (ThemeState.isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
+                            contentDescription = "切换主题",
+                            tint = Color.White
+                        )
+                    }
                     TextButton(onClick = onSwitchMode) {
                         Text("切换翻页", color = Color.White)
                     }
@@ -166,16 +186,20 @@ fun ContinuousScrollReader(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Text(
-                        text = "${currentIndex + 1} / $totalCount",
+                        text = "${visibleIndex + 1} / $totalCount",
                         color = Color.White,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Slider(
                         value = sliderValue,
-                        onValueChange = { sliderValue = it },
+                        onValueChange = {
+                            isDragging = true
+                            sliderValue = it
+                        },
                         onValueChangeFinished = {
                             val target = sliderValue.roundToInt().coerceIn(0, totalCount - 1)
-                            scope.launch { listState.scrollToItem(target) }
+                            jumpTarget = target
+                            isDragging = false
                         },
                         valueRange = 0f..(totalCount - 1).toFloat().coerceAtLeast(0f),
                         modifier = Modifier.fillMaxWidth(),

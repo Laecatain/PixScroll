@@ -28,6 +28,7 @@ interface MediaRepository {
 class AndroidMediaRepository(private val contentResolver: ContentResolver) : MediaRepository {
 
     private val unifiedUri = MediaStore.Files.getContentUri("external")
+    private var cachedHiddenParents: Set<Long>? = null
 
     private val fileProjection = arrayOf(
         MediaStore.Files.FileColumns._ID,
@@ -217,11 +218,13 @@ class AndroidMediaRepository(private val contentResolver: ContentResolver) : Med
     }.flowOn(Dispatchers.IO)
 
     private fun getHiddenFolderParentIds(): Set<Long> {
+        cachedHiddenParents?.let { return it }
         val hiddenParents = mutableSetOf<Long>()
         val storageDirs = getStorageRoots()
         for (root in storageDirs) {
             findNomediaFolders(root, hiddenParents)
         }
+        cachedHiddenParents = hiddenParents
         return hiddenParents
     }
 
