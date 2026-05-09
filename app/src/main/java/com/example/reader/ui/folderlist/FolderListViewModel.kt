@@ -1,9 +1,11 @@
 package com.example.reader.ui.folderlist
 
 import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.reader.data.model.MediaFolder
+import com.example.reader.data.repository.AndroidMediaRepository
 import com.example.reader.data.repository.MediaRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,9 +19,9 @@ data class FolderListState(
     val error: String? = null
 )
 
-class FolderListViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val repository = MediaRepository(application.contentResolver)
+class FolderListViewModel(
+    private val repository: MediaRepository
+) : ViewModel() {
 
     private val _state = MutableStateFlow(FolderListState())
     val state: StateFlow<FolderListState> = _state.asStateFlow()
@@ -29,6 +31,7 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun loadFolders() {
+        _state.value = _state.value.copy(isLoading = true, error = null)
         viewModelScope.launch {
             try {
                 repository.getAllFolders().collect { folders ->
@@ -39,6 +42,13 @@ class FolderListViewModel(application: Application) : AndroidViewModel(applicati
             } catch (e: Exception) {
                 _state.value = FolderListState(isLoading = false, error = e.message ?: "加载失败")
             }
+        }
+    }
+
+    class Factory(private val application: Application) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            return FolderListViewModel(AndroidMediaRepository(application.contentResolver)) as T
         }
     }
 }

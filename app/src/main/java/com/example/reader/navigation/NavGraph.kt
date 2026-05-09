@@ -8,15 +8,18 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.example.reader.ui.folderlist.FolderListScreen
+import com.example.reader.ui.mediagrid.MediaGridScreen
 import com.example.reader.ui.player.VideoPlayerScreen
 import com.example.reader.ui.reader.ReaderScreen
 
 object Routes {
     const val FOLDER_LIST = "folder_list"
-    const val READER = "reader/{parentId}"
+    const val MEDIA_GRID = "media_grid/{parentId}"
+    const val READER = "reader/{parentId}/{initialIndex}"
     const val VIDEO_PLAYER = "video_player/{videoUri}"
 
-    fun reader(parentId: Long) = "reader/$parentId"
+    fun mediaGrid(parentId: Long) = "media_grid/$parentId"
+    fun reader(parentId: Long, initialIndex: Int = 0) = "reader/$parentId/$initialIndex"
     fun videoPlayer(videoUri: String) = "video_player/${Uri.encode(videoUri)}"
 }
 
@@ -26,19 +29,47 @@ fun NavGraph(navController: NavHostController) {
         composable(Routes.FOLDER_LIST) {
             FolderListScreen(
                 onFolderClick = { folder ->
-                    navController.navigate(Routes.reader(folder.id))
+                    navController.navigate(Routes.mediaGrid(folder.id))
                 }
             )
         }
 
         composable(
-            route = Routes.READER,
+            route = Routes.MEDIA_GRID,
             arguments = listOf(navArgument("parentId") { type = NavType.LongType })
-        ) {
+        ) { backStackEntry ->
+            val parentId = backStackEntry.arguments?.getLong("parentId") ?: return@composable
+            MediaGridScreen(
+                parentId = parentId,
+                onImageClick = { index ->
+                    navController.navigate(Routes.reader(parentId, index))
+                },
+                onVideoClick = { item ->
+                    item.uri?.let { uri ->
+                        navController.navigate(Routes.videoPlayer(uri.toString()))
+                    }
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.READER,
+            arguments = listOf(
+                navArgument("parentId") { type = NavType.LongType },
+                navArgument("initialIndex") { type = NavType.IntType; defaultValue = 0 }
+            )
+        ) { backStackEntry ->
+            val parentId = backStackEntry.arguments?.getLong("parentId") ?: return@composable
+            val initialIndex = backStackEntry.arguments?.getInt("initialIndex") ?: 0
             ReaderScreen(
+                parentId = parentId,
+                initialIndex = initialIndex,
                 onBack = { navController.popBackStack() },
                 onVideoClick = { item ->
-                    navController.navigate(Routes.videoPlayer(item.uri.toString()))
+                    item.uri?.let { uri ->
+                        navController.navigate(Routes.videoPlayer(uri.toString()))
+                    }
                 }
             )
         }

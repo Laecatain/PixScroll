@@ -8,9 +8,11 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import android.app.Application
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -25,7 +27,9 @@ import com.example.reader.data.model.MediaFolder
 @Composable
 fun FolderListScreen(
     onFolderClick: (MediaFolder) -> Unit,
-    viewModel: FolderListViewModel = viewModel()
+    viewModel: FolderListViewModel = viewModel(
+        factory = FolderListViewModel.Factory(LocalContext.current.applicationContext as Application)
+    )
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -40,7 +44,7 @@ fun FolderListScreen(
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("加载失败", style = MaterialTheme.typography.bodyLarge)
-                Text(state.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                Text(state.error ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(onClick = { viewModel.loadFolders() }) {
                     Text("重试")

@@ -2,44 +2,58 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Build & Run
+## Build & Test
 
 ```bash
-./gradlew assembleDebug                          # Build debug APK
-./gradlew assembleRelease                        # Build release APK
-./gradlew lint                                   # Run lint checks
+# Build (use absolute path — no gradlew wrapper)
+/d/Android/gradle/gradle-8.7/bin/gradle assembleDebug -p /e/playground
+
+# Run all tests (JVM, no device needed)
+/d/Android/gradle/gradle-8.7/bin/gradle testDebugUnitTest -p /e/playground
+
+# Run a single test class
+/d/Android/gradle/gradle-8.7/bin/gradle testDebugUnitTest -p /e/playground --tests "*FolderListViewModelTest*"
 ```
 
-Requires JDK 17 and Android SDK 34. Open in Android Studio to build/run on device or emulator.
+Requires `JAVA_HOME=/d/Android/jdk` and `ANDROID_HOME=/d/Android/sdk`. JDK 17 Temurin, SDK API 34.
 
 ## Architecture
 
-Kotlin + Jetpack Compose (Material 3), MVVM pattern, no DI framework.
+Kotlin + Jetpack Compose (Material 3), MVVM, no DI framework.
 
 **Data flow**: ViewModel → `StateFlow<State>` → Composable collects via `collectAsState()`.
 
 **Key layers**:
 
-- `data/repository/MediaRepository.kt` — All data access via `ContentResolver` querying unified `MediaStore.Files`. Groups by `PARENT` (unique per storage volume). Supports `SortMode` (NAME/DATE/SIZE), `.nomedia` filtering, `IS_PENDING` exclusion (API 29+). Returns `Flow<List<T>>` with `flowOn(Dispatchers.IO)`.
-- `ui/folderlist/` — Folder grid screen. State: `FolderListState` (folders, isLoading, error).
-- `ui/reader/` — Image reader with two modes. State: `ReaderState` (mediaItems, currentMode, currentIndex, isLoading, error).
-- `ui/player/` — Video player using Media3 ExoPlayer with lifecycle-aware pause/resume.
-- `util/PermissionHelper.kt` — Permission list varies by SDK level (33+ uses `READ_MEDIA_*`, below uses `READ_EXTERNAL_STORAGE`).
+- `data/repository/MediaRepository.kt` — Interface + `AndroidMediaRepository` implementation. Unified `MediaStore.Files` query, PARENT-based grouping (not BUCKET_DISPLAY_NAME), `IS_PENDING` filter (API 29+), `.nomedia` detection, safe cursor access. `SortMode`/`SortOrder` are top-level enums.
+- `ui/folderlist/` — `FolderListViewModel(MediaRepository)` extends `ViewModel`. State: `FolderListState` (folders, isLoading, error). Factory pattern for Android instantiation.
+- `ui/reader/` — `ReaderViewModel(MediaRepository, parentId: Long)` extends `ViewModel`. Two reader modes, state: `ReaderState` (mediaItems, currentMode, currentIndex, isLoading, error, folderName).
+- `ui/player/` — ExoPlayer with lifecycle-aware pause/resume via `DisposableEffect`.
 
-**Reader modes** (switched at runtime via `ReaderScreen`):
+**Reader zoom**: Container-level zoom (not per-item). `graphicsLayer` on the entire `LazyColumn`/`HorizontalPager`. Custom `awaitPointerEventScope` gesture handler — single-finger scroll passes through to the scroll container; pinch-zoom and zoomed-in pan are consumed at the container level. `userScrollEnabled = !isZoomed`.
 
-| Mode | Component | Key detail |
-|------|-----------|------------|
-| Continuous vertical scroll | `ContinuousScrollReader` | `LazyColumn` with zero spacing between images; pinch-to-zoom + double-tap zoom; scroll disabled when zoomed |
-| Horizontal pager | `PagerReader` | `HorizontalPager`; same zoom semantics |
-
-**Navigation**: `navigation/NavGraph.kt` using Navigation Compose. Routes: `folder_list` → `reader/{parentId}` (LongType) → `video_player/{videoUri}`.
+**Navigation**: `reader/{parentId}` (LongType) → `video_player/{videoUri}`. Folder paths URI-encoded.
 
 ## Key Patterns
 
-- ViewModels extend `AndroidViewModel` and construct `MediaRepository(application.contentResolver)` directly — no DI factory.
-- All ViewModel state flows use `MutableStateFlow` + `asStateFlow()`.
-- `try-catch` in ViewModel `load*()` methods updates state with `error` field on failure; UI shows error + retry button.
-- `DisposableEffect` is used for ExoPlayer lifecycle cleanup.
-- Coil `AsyncImage` for all image loading. Content scale: `FillWidth` in scroll reader, `Fit` in pager reader.
-- Video thumbnails display a play button overlay; tap navigates to `VideoPlayerScreen`.
+- ViewModels extend `ViewModel` (not `AndroidViewModel`), accept `MediaRepository` via constructor, use inner `Factory` class for Android creation from composables.
+- `CancellationException` is always rethrown before `Exception` catch in ViewModel coroutines.
+- Coil `AsyncImage` for all image loading. `ContentScale.FillWidth` in scroll reader, `Fit` in pager reader.
+- `MediaItem.uri` is nullable (`Uri?`) — test convenience and robustness.
+- `MediaFolder.id` is MediaStore `PARENT` — unique per storage volume, used as Compose `LazyVerticalGrid` key.
+
+## Testing
+
+- `FakeMediaRepository` — in-memory implementation, injectable `foldersError`/`mediaError` for error tests.
+- Tests use `Dispatchers.Unconfined` for synchronous coroutine execution on JVM.
+- `returnDefaultValues = true` in testOptions for Android SDK stubs.
+- `Turbine` available as test dependency for Flow testing, though current tests use `state.value` directly.
+
+## Agent Automation
+
+需求出来 → `/plan`（出方案）→ `/tdd`（写测试先）→ `/code-review`（写完审）→ `/security-review`（提交前审）→ 构建通过 → 自动提交
+
+- 所有审查通过 + `assembleDebug` 成功后，**自动执行 `git add` + `git commit`**，无需等待用户确认提交。
+- 任何一步失败则停止，不提交。
+- **必须 plan**：新功能、跨文件改动、多种实现方式可选、改错后重做成本高的事。不确定就问。
+- **可跳过 plan**：单文件小改、修 bug、格式化、已有明确参照的做法。做错了重来成本低的事。

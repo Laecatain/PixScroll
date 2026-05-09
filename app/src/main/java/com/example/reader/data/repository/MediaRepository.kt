@@ -12,10 +12,20 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import java.io.File
 
-class MediaRepository(private val contentResolver: ContentResolver) {
+enum class SortMode { NAME, DATE, SIZE }
+enum class SortOrder { ASC, DESC }
 
-    enum class SortMode { NAME, DATE, SIZE }
-    enum class SortOrder { ASC, DESC }
+interface MediaRepository {
+    fun getAllFolders(
+        sortMode: SortMode = SortMode.DATE,
+        sortOrder: SortOrder = SortOrder.DESC,
+        includeHidden: Boolean = false
+    ): Flow<List<MediaFolder>>
+
+    fun getMediaByFolder(parentId: Long): Flow<List<MediaItem>>
+}
+
+class AndroidMediaRepository(private val contentResolver: ContentResolver) : MediaRepository {
 
     private val unifiedUri = MediaStore.Files.getContentUri("external")
 
@@ -33,10 +43,10 @@ class MediaRepository(private val contentResolver: ContentResolver) {
         MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME
     )
 
-    fun getAllFolders(
-        sortMode: SortMode = SortMode.DATE,
-        sortOrder: SortOrder = SortOrder.DESC,
-        includeHidden: Boolean = false
+    override fun getAllFolders(
+        sortMode: SortMode,
+        sortOrder: SortOrder,
+        includeHidden: Boolean
     ): Flow<List<MediaFolder>> = flow {
         val selection = StringBuilder(
             "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
@@ -87,13 +97,13 @@ class MediaRepository(private val contentResolver: ContentResolver) {
 
             while (it.moveToNext()) {
                 val parent = if (parentCol >= 0) it.getLong(parentCol) else continue
-                val data = if (dataCol >= 0) it.getString(dataCol) ?: continue
+                val data = if (dataCol >= 0) it.getString(dataCol) ?: "" else ""
                 val fileId = if (idCol >= 0) it.getLong(idCol) else continue
                 val mime = if (mimeCol >= 0) it.getString(mimeCol) ?: "" else ""
 
                 val acc = folderMap.getOrPut(parent) {
                     val bucket = if (bucketCol >= 0) it.getString(bucketCol) ?: "Unknown" else "Unknown"
-                    val folderPath = data.substringBeforeLast("/")
+                    val folderPath = if (data.isNotEmpty()) data.substringBeforeLast("/") else ""
                     FolderAccumulator(
                         parent = parent,
                         folderName = bucket,
@@ -142,7 +152,7 @@ class MediaRepository(private val contentResolver: ContentResolver) {
         emit(folders)
     }.flowOn(Dispatchers.IO)
 
-    fun getMediaByFolder(parentId: Long): Flow<List<MediaItem>> = flow {
+    override fun getMediaByFolder(parentId: Long): Flow<List<MediaItem>> = flow {
         val baseSelection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             "${MediaStore.Files.FileColumns.PARENT} = ?" +
                 " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +

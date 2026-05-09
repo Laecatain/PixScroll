@@ -1,10 +1,11 @@
 package com.example.reader.ui.reader
 
 import android.app.Application
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.reader.data.model.MediaItem
+import com.example.reader.data.repository.AndroidMediaRepository
 import com.example.reader.data.repository.MediaRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,13 +24,13 @@ data class ReaderState(
     val folderName: String = ""
 )
 
-class ReaderViewModel(application: Application, savedStateHandle: SavedStateHandle) :
-    AndroidViewModel(application) {
+class ReaderViewModel(
+    private val repository: MediaRepository,
+    private val parentId: Long,
+    private val initialIndex: Int = 0
+) : ViewModel() {
 
-    private val repository = MediaRepository(application.contentResolver)
-    private val parentId: Long = savedStateHandle["parentId"] ?: -1L
-
-    private val _state = MutableStateFlow(ReaderState())
+    private val _state = MutableStateFlow(ReaderState(currentIndex = initialIndex))
     val state: StateFlow<ReaderState> = _state.asStateFlow()
 
     init {
@@ -40,7 +41,8 @@ class ReaderViewModel(application: Application, savedStateHandle: SavedStateHand
         viewModelScope.launch {
             try {
                 repository.getMediaByFolder(parentId).collect { items ->
-                    val folderName = items.firstOrNull()?.folderPath?.substringAfterLast("/") ?: ""
+                    val folderName = items.firstOrNull()?.folderPath
+                        ?.substringBeforeLast("/")?.substringAfterLast("/") ?: ""
                     _state.value = _state.value.copy(
                         mediaItems = items,
                         folderName = folderName,
@@ -61,5 +63,20 @@ class ReaderViewModel(application: Application, savedStateHandle: SavedStateHand
 
     fun switchMode(mode: ReaderMode) {
         _state.value = _state.value.copy(currentMode = mode)
+    }
+
+    class Factory(
+        private val application: Application,
+        private val parentId: Long,
+        private val initialIndex: Int = 0
+    ) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            return ReaderViewModel(
+                AndroidMediaRepository(application.contentResolver),
+                parentId,
+                initialIndex
+            ) as T
+        }
     }
 }

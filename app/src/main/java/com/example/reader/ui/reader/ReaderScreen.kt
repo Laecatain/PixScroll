@@ -12,16 +12,26 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.app.Application
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.reader.data.model.MediaItem
 
 @Composable
 fun ReaderScreen(
+    parentId: Long,
+    initialIndex: Int = 0,
     onBack: () -> Unit,
     onVideoClick: (MediaItem) -> Unit,
-    viewModel: ReaderViewModel = viewModel()
+    viewModel: ReaderViewModel = viewModel(
+        factory = ReaderViewModel.Factory(
+            LocalContext.current.applicationContext as Application,
+            parentId,
+            initialIndex
+        )
+    )
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -37,7 +47,7 @@ fun ReaderScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("加载失败", color = Color.White, style = MaterialTheme.typography.bodyLarge)
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(state.error, color = Color.Gray)
+                Text(state.error ?: "", color = Color.Gray)
             }
         }
         return
