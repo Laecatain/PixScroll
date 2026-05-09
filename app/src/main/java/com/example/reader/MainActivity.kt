@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
@@ -26,10 +27,16 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            val isDark = ThemeState.isDark
-            MaterialTheme(
-                colorScheme = if (isDark) darkColorScheme() else lightColorScheme()
-            ) {
+            val colorScheme = when (ThemeState.themeMode) {
+                ThemeState.ThemeMode.LIGHT -> lightColorScheme()
+                ThemeState.ThemeMode.DARK -> darkColorScheme()
+                ThemeState.ThemeMode.AMOLED_BLACK -> darkColorScheme().copy(
+                    background = Color.Black,
+                    surface = Color.Black,
+                    surfaceVariant = Color(0xFF121212)
+                )
+            }
+            MaterialTheme(colorScheme = colorScheme) {
                 val permissionsState = rememberMultiplePermissionsState(
                     permissions = PermissionHelper.requiredPermissions
                 )

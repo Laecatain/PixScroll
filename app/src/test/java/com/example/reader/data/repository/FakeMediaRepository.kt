@@ -9,8 +9,10 @@ class FakeMediaRepository : MediaRepository {
 
     var folders: List<MediaFolder> = emptyList()
     var mediaItems: Map<Long, List<MediaItem>> = emptyMap()
+    var searchResults: List<MediaItem> = emptyList()
     var foldersError: Throwable? = null
     var mediaError: Throwable? = null
+    var searchError: Throwable? = null
 
     override fun getAllFolders(
         sortMode: SortMode,
@@ -21,8 +23,17 @@ class FakeMediaRepository : MediaRepository {
         return flowOf(folders)
     }
 
-    override fun getMediaByFolder(parentId: Long): Flow<List<MediaItem>> {
+    override fun getMediaByFolder(
+        parentId: Long,
+        sortMode: SortMode,
+        sortOrder: SortOrder
+    ): Flow<List<MediaItem>> {
         mediaError?.let { throw it }
         return flowOf(mediaItems[parentId] ?: emptyList())
+    }
+
+    override fun searchMedia(query: String): Flow<List<MediaItem>> {
+        searchError?.let { throw it }
+        return flowOf(searchResults)
     }
 }

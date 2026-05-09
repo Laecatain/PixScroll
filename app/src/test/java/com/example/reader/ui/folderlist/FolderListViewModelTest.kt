@@ -58,7 +58,7 @@ class FolderListViewModelTest {
         repo.folders = listOf(
             MediaFolder(id = 2, folderName = "Screenshots", folderPath = "/Pictures/Screenshots", coverImageUri = null, mediaCount = 3)
         )
-        vm.loadFolders()
+        vm.updateSortMode(vm.sortMode) // trigger reload
 
         assertFalse(vm.state.value.isLoading)
         assertEquals(1, vm.state.value.folders.size)

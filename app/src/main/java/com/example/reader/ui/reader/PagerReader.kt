@@ -147,7 +147,7 @@ fun PagerReader(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    IconButton(onClick = { ThemeState.toggle() }) {
+                    IconButton(onClick = { ThemeState.cycle() }) {
                         Icon(
                             if (ThemeState.isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
                             contentDescription = "切换主题",
@@ -188,6 +188,7 @@ fun PagerReader(
                         onValueChange = { sliderValue = it },
                         onValueChangeFinished = {
                             val target = sliderValue.roundToInt().coerceIn(0, totalCount - 1)
+                            sliderValue = target.toFloat()  // 立即锁定目标，消除回退
                             scope.launch { pagerState.scrollToPage(target) }
                         },
                         valueRange = 0f..(totalCount - 1).toFloat().coerceAtLeast(0f),

@@ -10,11 +10,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import android.app.Application
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
@@ -28,67 +35,131 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.reader.data.model.MediaFolder
+import com.example.reader.data.repository.SortMode
+import com.example.reader.data.repository.SortOrder
 import com.example.reader.ui.theme.ThemeState
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FolderListScreen(
     onFolderClick: (MediaFolder) -> Unit,
+    onSettings: () -> Unit,
+    onSearch: () -> Unit,
     viewModel: FolderListViewModel = viewModel(
         factory = FolderListViewModel.Factory(LocalContext.current.applicationContext as Application)
     )
 ) {
     val state by viewModel.state.collectAsState()
-    val bgColor = MaterialTheme.colorScheme.background
+    var showSortMenu by remember { mutableStateOf(false) }
 
-    if (state.isLoading) {
-        Box(modifier = Modifier.fillMaxSize().background(bgColor), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("图库") },
+                actions = {
+                    IconButton(onClick = onSearch) {
+                        Icon(Icons.Filled.Search, contentDescription = "搜索")
+                    }
+                    Box {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
+                        }
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false }
+                        ) {
+                            val sortModes = listOf(
+                                SortMode.DATE to "按日期",
+                                SortMode.NAME to "按名称",
+                                SortMode.SIZE to "按大小"
+                            )
+                            sortModes.forEach { (mode, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        viewModel.updateSortMode(mode)
+                                        showSortMenu = false
+                                    },
+                                    leadingIcon = if (mode == viewModel.sortMode) {
+                                        { Icon(Icons.Filled.Check, contentDescription = null) }
+                                    } else null
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = {
+                                    Text(if (viewModel.sortOrder == SortOrder.DESC) "降序 ↓" else "升序 ↑")
+                                },
+                                onClick = {
+                                    viewModel.toggleSortOrder()
+                                    showSortMenu = false
+                                }
+                            )
+                        }
+                    }
+                    IconButton(onClick = onSettings) {
+                        Icon(Icons.Filled.Settings, contentDescription = "设置")
+                    }
+                    IconButton(onClick = { ThemeState.cycle() }) {
+                        Icon(
+                            if (ThemeState.isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
+                            contentDescription = "切换主题",
+                            tint = if (ThemeState.isDark) Color.White else Color.DarkGray
+                        )
+                    }
+                }
+            )
         }
-        return
-    }
-
-    if (state.error != null) {
-        Box(modifier = Modifier.fillMaxSize().background(bgColor), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("加载失败", style = MaterialTheme.typography.bodyLarge)
-                Text(state.error ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = { viewModel.loadFolders() }) {
-                    Text("重试")
+    ) { padding ->
+        when {
+            state.isLoading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
                 }
             }
-        }
-        return
-    }
-
-    if (state.folders.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize().background(bgColor), contentAlignment = Alignment.Center) {
-            Text("未找到任何图片或视频", style = MaterialTheme.typography.bodyLarge)
-        }
-        return
-    }
-
-    Box(modifier = Modifier.fillMaxSize().background(bgColor)) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            items(state.folders, key = { it.id }) { folder ->
-                FolderCard(folder = folder, onClick = { onFolderClick(folder) })
+            state.error != null -> {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("加载失败", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            state.error ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(onClick = { viewModel.updateSortMode(viewModel.sortMode) }) {
+                            Text("重试")
+                        }
+                    }
+                }
             }
-        }
-        IconButton(
-            onClick = { ThemeState.toggle() },
-            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
-        ) {
-            Icon(
-                if (ThemeState.isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
-                contentDescription = "切换主题",
-                tint = if (ThemeState.isDark) Color.White else Color.DarkGray
-            )
+            state.folders.isEmpty() -> {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("未找到任何图片或视频", style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+            else -> {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    contentPadding = PaddingValues(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize().padding(padding)
+                ) {
+                    items(state.folders, key = { it.id }) { folder ->
+                        FolderCard(folder = folder, onClick = { onFolderClick(folder) })
+                    }
+                }
+            }
         }
     }
 }

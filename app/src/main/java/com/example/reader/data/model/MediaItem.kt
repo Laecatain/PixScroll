@@ -9,6 +9,7 @@ data class MediaItem(
     val size: Long,
     val dateModified: Long,
     val folderPath: String,
+    val parentId: Long = 0,
     val orientation: Int = 0,
     val mediaType: Int = 0
 ) {

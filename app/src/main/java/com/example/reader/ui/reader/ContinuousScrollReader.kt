@@ -31,6 +31,8 @@ import coil.compose.AsyncImage
 import com.example.reader.data.model.MediaItem
 import com.example.reader.ui.theme.ThemeState
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 @Composable
@@ -47,16 +49,15 @@ fun ContinuousScrollReader(
 
     val isZoomed = scale > 1f
     val totalCount = mediaItems.size
+    val scope = rememberCoroutineScope()
 
-    // Jump target: when set, LazyColumn re-keys at this index, avoiding scroll-through-all-items
-    var jumpTarget by remember { mutableStateOf(0) }
     var isDragging by remember { mutableStateOf(false) }
+    var isAnimatingScroll by remember { mutableStateOf(false) }
     var sliderValue by remember { mutableFloatStateOf(0f) }
-
     var visibleIndex by remember { mutableStateOf(0) }
 
-    LaunchedEffect(visibleIndex, isDragging) {
-        if (!isDragging) {
+    LaunchedEffect(visibleIndex, isDragging, isAnimatingScroll) {
+        if (!isDragging && !isAnimatingScroll) {
             sliderValue = visibleIndex.toFloat()
         }
     }
@@ -100,34 +101,32 @@ fun ContinuousScrollReader(
                 }
             }
     ) {
-        key(jumpTarget) {
-            val innerState = rememberLazyListState(initialFirstVisibleItemIndex = jumpTarget)
-            val idx = innerState.firstVisibleItemIndex.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
-            LaunchedEffect(idx) { visibleIndex = idx }
+        val listState = rememberLazyListState()
+        val idx = listState.firstVisibleItemIndex.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
+        LaunchedEffect(idx) { visibleIndex = idx }
 
-            LazyColumn(
-                state = innerState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        translationX = offsetX
-                        translationY = offsetY
-                    },
-                userScrollEnabled = !isZoomed
-            ) {
-                itemsIndexed(mediaItems, key = { _, item -> item.uri ?: item.name }) { _, item ->
-                    if (item.isVideo) {
-                        VideoThumbnail(item = item, onClick = { onVideoClick(item) })
-                    } else {
-                        AsyncImage(
-                            model = item.uri,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxWidth(),
-                            contentScale = ContentScale.FillWidth
-                        )
-                    }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offsetX
+                    translationY = offsetY
+                },
+            userScrollEnabled = !isZoomed
+        ) {
+            itemsIndexed(mediaItems, key = { _, item -> item.uri ?: item.name }) { _, item ->
+                if (item.isVideo) {
+                    VideoThumbnail(item = item, onClick = { onVideoClick(item) })
+                } else {
+                    AsyncImage(
+                        model = item.uri,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentScale = ContentScale.FillWidth
+                    )
                 }
             }
         }
@@ -154,7 +153,7 @@ fun ContinuousScrollReader(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    IconButton(onClick = { ThemeState.toggle() }) {
+                    IconButton(onClick = { ThemeState.cycle() }) {
                         Icon(
                             if (ThemeState.isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
                             contentDescription = "切换主题",
@@ -194,12 +193,22 @@ fun ContinuousScrollReader(
                         value = sliderValue,
                         onValueChange = {
                             isDragging = true
+                            isAnimatingScroll = false
                             sliderValue = it
                         },
                         onValueChangeFinished = {
-                            val target = sliderValue.roundToInt().coerceIn(0, totalCount - 1)
-                            jumpTarget = target
+                            val target = sliderValue.roundToInt()
+                                .coerceIn(0, (totalCount - 1).coerceAtLeast(0))
                             isDragging = false
+                            sliderValue = target.toFloat()  // 立即锁定目标，消除回退
+                            isAnimatingScroll = true
+                            scope.launch {
+                                try {
+                                    listState.animateScrollToItem(target, scrollOffset = 0)
+                                } finally {
+                                    isAnimatingScroll = false
+                                }
+                            }
                         },
                         valueRange = 0f..(totalCount - 1).toFloat().coerceAtLeast(0f),
                         modifier = Modifier.fillMaxWidth(),

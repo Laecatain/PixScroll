@@ -22,7 +22,13 @@ interface MediaRepository {
         includeHidden: Boolean = false
     ): Flow<List<MediaFolder>>
 
-    fun getMediaByFolder(parentId: Long): Flow<List<MediaItem>>
+    fun getMediaByFolder(
+        parentId: Long,
+        sortMode: SortMode = SortMode.DATE,
+        sortOrder: SortOrder = SortOrder.DESC
+    ): Flow<List<MediaItem>>
+
+    fun searchMedia(query: String): Flow<List<MediaItem>>
 }
 
 class AndroidMediaRepository(private val contentResolver: ContentResolver) : MediaRepository {
@@ -153,7 +159,11 @@ class AndroidMediaRepository(private val contentResolver: ContentResolver) : Med
         emit(folders)
     }.flowOn(Dispatchers.IO)
 
-    override fun getMediaByFolder(parentId: Long): Flow<List<MediaItem>> = flow {
+    override fun getMediaByFolder(
+        parentId: Long,
+        sortMode: SortMode,
+        sortOrder: SortOrder
+    ): Flow<List<MediaItem>> = flow {
         val baseSelection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             "${MediaStore.Files.FileColumns.PARENT} = ?" +
                 " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
@@ -169,10 +179,87 @@ class AndroidMediaRepository(private val contentResolver: ContentResolver) : Med
             MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString()
         )
 
+        val sortCol = when (sortMode) {
+            SortMode.NAME -> MediaStore.Files.FileColumns.DISPLAY_NAME
+            SortMode.DATE -> MediaStore.Files.FileColumns.DATE_TAKEN
+            SortMode.SIZE -> MediaStore.Files.FileColumns.SIZE
+        }
+        val direction = if (sortOrder == SortOrder.DESC) "DESC" else "ASC"
+
         val cursor = contentResolver.query(
             unifiedUri,
             fileProjection,
             baseSelection,
+            selectionArgs,
+            "$sortCol $direction"
+        )
+
+        val items = mutableListOf<MediaItem>()
+
+        cursor?.use {
+            val idCol = it.getColumnIndex(MediaStore.Files.FileColumns._ID)
+            val nameCol = it.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
+            val mimeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE)
+            val sizeCol = it.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
+            val dateCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATE_MODIFIED)
+            val dataCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATA)
+            val parentCol = it.getColumnIndex(MediaStore.Files.FileColumns.PARENT)
+            val orientCol = it.getColumnIndex(MediaStore.Files.FileColumns.ORIENTATION)
+            val mediaTypeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
+
+            while (it.moveToNext()) {
+                val id = if (idCol >= 0) it.getLong(idCol) else continue
+                val name = if (nameCol >= 0) it.getString(nameCol) ?: "" else ""
+                val mime = if (mimeCol >= 0) it.getString(mimeCol) ?: "" else ""
+                val size = if (sizeCol >= 0) it.getLong(sizeCol) else 0L
+                val date = if (dateCol >= 0) it.getLong(dateCol) else 0L
+                val data = if (dataCol >= 0) it.getString(dataCol) ?: "" else ""
+                val parent = if (parentCol >= 0) it.getLong(parentCol) else 0L
+                val orientation = if (orientCol >= 0) it.getInt(orientCol) else 0
+                val mediaType = if (mediaTypeCol >= 0) it.getInt(mediaTypeCol) else 0
+
+                items.add(
+                    MediaItem(
+                        uri = ContentUris.withAppendedId(unifiedUri, id),
+                        name = name,
+                        mimeType = mime,
+                        size = size,
+                        dateModified = date,
+                        folderPath = data,
+                        parentId = parent,
+                        orientation = orientation,
+                        mediaType = mediaType
+                    )
+                )
+            }
+        }
+
+        emit(items)
+    }.flowOn(Dispatchers.IO)
+
+    override fun searchMedia(query: String): Flow<List<MediaItem>> = flow {
+        if (query.isBlank()) {
+            emit(emptyList())
+            return@flow
+        }
+        val selection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
+                " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0" +
+                " AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?"
+        } else {
+            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
+                " AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?"
+        }
+        val selectionArgs = arrayOf(
+            MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
+            MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString(),
+            "%$query%"
+        )
+
+        val cursor = contentResolver.query(
+            unifiedUri,
+            fileProjection,
+            selection,
             selectionArgs,
             "${MediaStore.Files.FileColumns.DATE_TAKEN} DESC"
         )
@@ -186,6 +273,7 @@ class AndroidMediaRepository(private val contentResolver: ContentResolver) : Med
             val sizeCol = it.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
             val dateCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATE_MODIFIED)
             val dataCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATA)
+            val parentCol = it.getColumnIndex(MediaStore.Files.FileColumns.PARENT)
             val orientCol = it.getColumnIndex(MediaStore.Files.FileColumns.ORIENTATION)
             val mediaTypeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
 
@@ -196,6 +284,7 @@ class AndroidMediaRepository(private val contentResolver: ContentResolver) : Med
                 val size = if (sizeCol >= 0) it.getLong(sizeCol) else 0L
                 val date = if (dateCol >= 0) it.getLong(dateCol) else 0L
                 val data = if (dataCol >= 0) it.getString(dataCol) ?: "" else ""
+                val parent = if (parentCol >= 0) it.getLong(parentCol) else 0L
                 val orientation = if (orientCol >= 0) it.getInt(orientCol) else 0
                 val mediaType = if (mediaTypeCol >= 0) it.getInt(mediaTypeCol) else 0
 
@@ -207,6 +296,7 @@ class AndroidMediaRepository(private val contentResolver: ContentResolver) : Med
                         size = size,
                         dateModified = date,
                         folderPath = data,
+                        parentId = parent,
                         orientation = orientation,
                         mediaType = mediaType
                     )

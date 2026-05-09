@@ -7,10 +7,15 @@ import androidx.lifecycle.viewModelScope
 import com.example.reader.data.model.MediaItem
 import com.example.reader.data.repository.AndroidMediaRepository
 import com.example.reader.data.repository.MediaRepository
+import com.example.reader.data.repository.SortMode
+import com.example.reader.data.repository.SortOrder
+import com.example.reader.util.PreferenceKeys
+import com.example.reader.util.dataStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 enum class ReaderMode { ContinuousScroll, Pager }
@@ -21,26 +26,63 @@ data class ReaderState(
     val currentMode: ReaderMode = ReaderMode.ContinuousScroll,
     val isLoading: Boolean = true,
     val error: String? = null,
-    val folderName: String = ""
+    val folderName: String = "",
+    val sortMode: SortMode = SortMode.DATE,
+    val sortOrder: SortOrder = SortOrder.DESC
 )
 
 class ReaderViewModel(
     private val repository: MediaRepository,
     private val parentId: Long,
-    private val initialIndex: Int = 0
+    private val initialIndex: Int = 0,
+    private val application: Application? = null
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ReaderState(currentIndex = initialIndex))
     val state: StateFlow<ReaderState> = _state.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            var sortMode = SortMode.DATE
+            var sortOrder = SortOrder.DESC
+            if (application != null) {
+                val prefs = application.dataStore.data.first()
+                sortMode = try {
+                    SortMode.valueOf(prefs[PreferenceKeys.SORT_MODE] ?: "DATE")
+                } catch (_: IllegalArgumentException) { SortMode.DATE }
+                sortOrder = try {
+                    SortOrder.valueOf(prefs[PreferenceKeys.SORT_ORDER] ?: "DESC")
+                } catch (_: IllegalArgumentException) { SortOrder.DESC }
+            }
+            _state.value = _state.value.copy(sortMode = sortMode, sortOrder = sortOrder)
+            loadMedia()
+        }
+    }
+
+    fun setSortMode(mode: SortMode) {
+        _state.value = _state.value.copy(sortMode = mode)
+        loadMedia()
+    }
+
+    fun setSortOrder(order: SortOrder) {
+        _state.value = _state.value.copy(sortOrder = order)
+        loadMedia()
+    }
+
+    fun toggleSortOrder() {
+        val newOrder = if (_state.value.sortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
+        _state.value = _state.value.copy(sortOrder = newOrder)
         loadMedia()
     }
 
     private fun loadMedia() {
         viewModelScope.launch {
             try {
-                repository.getMediaByFolder(parentId).collect { items ->
+                repository.getMediaByFolder(
+                    parentId,
+                    sortMode = _state.value.sortMode,
+                    sortOrder = _state.value.sortOrder
+                ).collect { items ->
                     val folderName = items.firstOrNull()?.folderPath
                         ?.substringBeforeLast("/")?.substringAfterLast("/") ?: ""
                     _state.value = _state.value.copy(
@@ -75,7 +117,8 @@ class ReaderViewModel(
             return ReaderViewModel(
                 AndroidMediaRepository(application.contentResolver),
                 parentId,
-                initialIndex
+                initialIndex,
+                application
             ) as T
         }
     }
