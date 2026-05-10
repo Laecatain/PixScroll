@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -30,6 +31,7 @@ import coil.compose.AsyncImage
 import com.example.reader.data.model.MediaItem
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
+import com.example.reader.ui.common.FastScroller
 import com.example.reader.ui.reader.ReaderViewModel
 import com.example.reader.util.PreferenceKeys
 import com.example.reader.util.dataStore
@@ -52,6 +54,7 @@ fun MediaGridScreen(
 ) {
     val state by viewModel.state.collectAsState()
     var showSortMenu by remember { mutableStateOf(false) }
+    val gridState = rememberLazyGridState()
 
     // Read grid columns from DataStore
     val context = LocalContext.current
@@ -141,22 +144,30 @@ fun MediaGridScreen(
                 }
             }
             else -> {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(gridColumns),
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentPadding = PaddingValues(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    itemsIndexed(state.mediaItems, key = { _, item -> item.uri ?: item.name }) { index, item ->
-                        MediaGridCell(
-                            item = item,
-                            onClick = {
-                                if (item.isVideo) onVideoClick(item)
-                                else onImageClick(index)
-                            }
-                        )
+                Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+                    LazyVerticalGrid(
+                        state = gridState,
+                        columns = GridCells.Fixed(gridColumns),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        itemsIndexed(state.mediaItems, key = { _, item -> item.uri ?: item.name }) { index, item ->
+                            MediaGridCell(
+                                item = item,
+                                onClick = {
+                                    if (item.isVideo) onVideoClick(item)
+                                    else onImageClick(index)
+                                }
+                            )
+                        }
                     }
+                    FastScroller(
+                        gridState = gridState,
+                        itemCount = state.mediaItems.size,
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                    )
                 }
             }
         }

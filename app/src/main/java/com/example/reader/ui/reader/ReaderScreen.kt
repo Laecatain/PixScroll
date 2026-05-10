@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import android.app.Application
@@ -60,20 +61,25 @@ fun ReaderScreen(
         return
     }
 
+    // 索引回调稳定引用，避免滚动时因 lambda 创建导致不必要的重组
+    val onIndexChange = remember { { index: Int -> viewModel.setCurrentIndex(index) } }
+
     when (state.currentMode) {
         ReaderMode.ContinuousScroll -> ContinuousScrollReader(
             mediaItems = state.mediaItems,
             initialIndex = state.currentIndex,
             onBack = onBack,
             onSwitchMode = { viewModel.switchMode(ReaderMode.Pager) },
-            onVideoClick = onVideoClick
+            onVideoClick = onVideoClick,
+            onIndexChange = onIndexChange
         )
         ReaderMode.Pager -> PagerReader(
             mediaItems = state.mediaItems,
             initialIndex = state.currentIndex,
             onBack = onBack,
             onSwitchMode = { viewModel.switchMode(ReaderMode.ContinuousScroll) },
-            onVideoClick = onVideoClick
+            onVideoClick = onVideoClick,
+            onIndexChange = onIndexChange
         )
     }
 }

@@ -17,7 +17,6 @@ import com.example.reader.util.FolderCache
 import com.example.reader.util.PreferenceKeys
 import com.example.reader.util.dataStore
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,7 +25,6 @@ import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 private const val TAG = "FolderListVM"
 
@@ -35,26 +33,32 @@ class FolderListViewModel(
     private val application: Application? = null
 ) : ViewModel() {
 
-    // 初始值不硬编码 Loading — 如果缓存命中直接 Success
-    private val _state = MutableStateFlow<FolderUiState>(FolderUiState.Loading)
-    val state: StateFlow<FolderUiState> = _state.asStateFlow()
-
     var sortMode by mutableStateOf(SortMode.DATE)
         private set
     var sortOrder by mutableStateOf(SortOrder.DESC)
         private set
 
+    // 首次启动时跳过 Loading 直接显示缓存
+    private var skipNextLoading = false
+
+    private val _state: MutableStateFlow<FolderUiState>
+    val state: StateFlow<FolderUiState>
+
     init {
-        viewModelScope.launch {
-            val cacheDir = application?.cacheDir
-            if (cacheDir != null) {
-                // Cache-First: 同步读取缓存 → 有数据直接 Success，不经过 Loading
-                val cached = withContext(Dispatchers.IO) { FolderCache.loadFolders(cacheDir) }
-                if (cached.isNotEmpty()) {
-                    Log.d(TAG, "缓存命中: ${cached.size} 个文件夹 [thread=${Thread.currentThread().name}]")
-                    _state.value = FolderUiState.Success(cached)
-                }
-                // 读取排序偏好
+        // Cache-First: 同步读取缓存作为 StateFlow 初始值
+        val cached = application?.cacheDir?.let { FolderCache.loadFolders(it) }
+        if (cached != null && cached.isNotEmpty()) {
+            Log.d(TAG, "缓存命中: ${cached.size} 个文件夹")
+            skipNextLoading = true
+            _state = MutableStateFlow(FolderUiState.Success(cached))
+        } else {
+            _state = MutableStateFlow(FolderUiState.Loading)
+        }
+        state = _state.asStateFlow()
+
+        // 异步读取排序偏好
+        if (application != null) {
+            viewModelScope.launch {
                 val prefs = application.dataStore.data.first()
                 sortMode = try {
                     SortMode.valueOf(prefs[PreferenceKeys.SORT_MODE] ?: "DATE")
@@ -63,8 +67,10 @@ class FolderListViewModel(
                     SortOrder.valueOf(prefs[PreferenceKeys.SORT_ORDER] ?: "DESC")
                 } catch (_: IllegalArgumentException) { SortOrder.DESC }
             }
-            loadFolders()
         }
+
+        // 刷新数据（首次跳 Loading 以复用缓存显示）
+        loadFolders()
     }
 
     fun updateSortMode(mode: SortMode) {
@@ -83,7 +89,10 @@ class FolderListViewModel(
     }
 
     private fun loadFolders() {
-        _state.value = FolderUiState.Loading
+        if (!skipNextLoading) {
+            _state.value = FolderUiState.Loading
+        }
+        skipNextLoading = false
         viewModelScope.launch {
             try {
                 repository.getAllFolders(sortMode = sortMode, sortOrder = sortOrder)
