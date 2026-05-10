@@ -37,6 +37,7 @@ import com.example.reader.ui.theme.ThemeState
 import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private const val TAG = "ContinuousScroll"
@@ -96,7 +97,7 @@ fun ContinuousScrollReader(
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
     val coldCenteringOffset = remember(safeInitial, mediaItems.getOrNull(safeInitial)) {
-        calculateCenteringOffset(mediaItems, safeInitial, screenHeightPx, screenWidthPx)
+        calculateCenteringOffset(mediaItems, safeInitial, screenHeightPx, screenWidthPx, screenHeightPx)
     }
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = safeInitial,
@@ -125,29 +126,28 @@ fun ContinuousScrollReader(
         }
     }
 
-    // 热启动: 监听 totalItemsCount，数据就绪后执行跳转（防竞态）
+    // 热启动: 等待数据就绪后执行一次跳转，然后终止流（防止退出时重复触发）
     LaunchedEffect(initialIndex) {
-        snapshotFlow { listState.layoutInfo.totalItemsCount }
-            .collect { count ->
-                if (count > 0) {
-                    val target = initialIndex.coerceIn(0, count - 1)
-                    // 状态锁：已在目标位置则跳过，防止 onIndexChange → LaunchedEffect 反馈环
-                    if (listState.firstVisibleItemIndex == target) return@collect
-                    Log.d(TAG, "热启动跳转: target=$target total=$count")
-                    val vp = listState.layoutInfo.viewportSize.height.toFloat()
-                    val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx)
-                    if (abs(target - listState.firstVisibleItemIndex) > LONG_JUMP_THRESHOLD) {
-                        val midTarget = if (target > listState.firstVisibleItemIndex)
-                            (target - LONG_JUMP_OFFSET).coerceAtLeast(0)
-                        else
-                            (target + LONG_JUMP_OFFSET).coerceAtMost(count - 1)
-                        listState.scrollToItem(midTarget)
-                    }
-                    listState.animateScrollToItem(target, scrollOffset = offset)
-                    // 只执行一次
-                    return@collect
-                }
+        // first{} 在条件满足后立即终止收集，避免 composable dispose 时再次触发滚动
+        val count = snapshotFlow { listState.layoutInfo.totalItemsCount }
+            .first { it > 0 }
+        val target = initialIndex.coerceIn(0, count - 1)
+        if (listState.firstVisibleItemIndex == target) return@LaunchedEffect
+        Log.d(TAG, "热启动跳转: target=$target total=$count")
+        try {
+            val vp = listState.layoutInfo.viewportSize.height.toFloat()
+            val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx, screenHeightPx)
+            if (abs(target - listState.firstVisibleItemIndex) > LONG_JUMP_THRESHOLD) {
+                val midTarget = if (target > listState.firstVisibleItemIndex)
+                    (target - LONG_JUMP_OFFSET).coerceAtLeast(0)
+                else
+                    (target + LONG_JUMP_OFFSET).coerceAtMost(count - 1)
+                listState.scrollToItem(midTarget)
             }
+            listState.animateScrollToItem(target, scrollOffset = offset)
+        } catch (_: Exception) {
+            // composable 正在 dispose 时滚动可能抛异常，安全忽略
+        }
     }
 
     Box(
@@ -283,7 +283,7 @@ fun ContinuousScrollReader(
                                         listState.scrollToItem(mid)
                                     }
                                     val vp = listState.layoutInfo.viewportSize.height.toFloat()
-                                    val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx)
+                                    val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx, screenHeightPx)
                                     listState.animateScrollToItem(target, scrollOffset = offset)
                                 } finally {
                                     isUserInteracting = false
@@ -314,13 +314,15 @@ private fun calculateCenteringOffset(
     mediaItems: List<MediaItem>,
     targetIndex: Int,
     viewportPx: Float,
-    screenWidthPx: Float
+    screenWidthPx: Float,
+    contentPaddingPx: Float
 ): Int {
     val ratio = mediaItems.getOrNull(targetIndex)?.aspectRatio
         ?.takeIf { it > 0f } ?: DEFAULT_ASPECT_RATIO
     val itemHeightPx = screenWidthPx / ratio  // ContentScale.FillWidth 下的实际渲染高度
     val gap = (viewportPx - itemHeightPx) / 2f
-    return if (gap > 0) -gap.toInt() else 0   // 负偏移 = 内容前加边距
+    val targetTop = if (gap > 0) gap else 0f
+    return (contentPaddingPx - targetTop).toInt()
 }
 
 @Composable

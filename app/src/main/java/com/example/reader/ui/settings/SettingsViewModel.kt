@@ -8,6 +8,8 @@ import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
 import com.example.reader.ui.theme.ThemeState
 import com.example.reader.util.dataStore
+import com.example.reader.util.saveFolderSortMode
+import com.example.reader.util.saveFolderSortOrder
 import com.example.reader.util.saveGridColumns
 import com.example.reader.util.saveSortMode
 import com.example.reader.util.saveSortOrder
@@ -21,6 +23,8 @@ data class SettingsState(
     val themeMode: ThemeState.ThemeMode = ThemeState.ThemeMode.DARK,
     val sortMode: SortMode = SortMode.DATE,
     val sortOrder: SortOrder = SortOrder.DESC,
+    val folderSortMode: SortMode = SortMode.DATE,
+    val folderSortOrder: SortOrder = SortOrder.DESC,
     val gridColumns: Int = 3,
     val showHidden: Boolean = false
 )
@@ -43,6 +47,8 @@ class SettingsViewModel(
                 themeMode = ThemeState.themeMode,
                 sortMode = SortMode.valueOf(prefs[com.example.reader.util.PreferenceKeys.SORT_MODE] ?: "DATE"),
                 sortOrder = SortOrder.valueOf(prefs[com.example.reader.util.PreferenceKeys.SORT_ORDER] ?: "DESC"),
+                folderSortMode = SortMode.valueOf(prefs[com.example.reader.util.PreferenceKeys.FOLDER_SORT_MODE] ?: "DATE"),
+                folderSortOrder = SortOrder.valueOf(prefs[com.example.reader.util.PreferenceKeys.FOLDER_SORT_ORDER] ?: "DESC"),
                 gridColumns = prefs[com.example.reader.util.PreferenceKeys.GRID_COLUMNS] ?: 3,
                 showHidden = false
             )
@@ -55,6 +61,7 @@ class SettingsViewModel(
         _state.value = _state.value.copy(themeMode = mode)
     }
 
+    /** 媒体列表排序 */
     fun setSortMode(mode: SortMode) {
         _state.value = _state.value.copy(sortMode = mode)
         viewModelScope.launch { application.saveSortMode(mode.name) }
@@ -63,6 +70,17 @@ class SettingsViewModel(
     fun setSortOrder(order: SortOrder) {
         _state.value = _state.value.copy(sortOrder = order)
         viewModelScope.launch { application.saveSortOrder(order.name) }
+    }
+
+    /** 首页文件夹排序 */
+    fun setFolderSortMode(mode: SortMode) {
+        _state.value = _state.value.copy(folderSortMode = mode)
+        viewModelScope.launch { application.saveFolderSortMode(mode.name) }
+    }
+
+    fun setFolderSortOrder(order: SortOrder) {
+        _state.value = _state.value.copy(folderSortOrder = order)
+        viewModelScope.launch { application.saveFolderSortOrder(order.name) }
     }
 
     fun setGridColumns(columns: Int) {

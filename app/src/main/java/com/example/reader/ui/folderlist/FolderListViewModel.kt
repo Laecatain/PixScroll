@@ -14,8 +14,8 @@ import com.example.reader.data.repository.MediaRepository
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
 import com.example.reader.util.FolderCache
-import com.example.reader.util.saveSortMode
-import com.example.reader.util.saveSortOrder
+import com.example.reader.util.saveFolderSortMode
+import com.example.reader.util.saveFolderSortOrder
 import com.example.reader.util.settingsFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,25 +59,25 @@ class FolderListViewModel(
         state = _state.asStateFlow()
 
         if (application != null) {
-            // ① 读取初始排序偏好并首次加载
+            // ① 读取首页排序偏好并首次加载
             viewModelScope.launch {
                 val initial = application.settingsFlow().first()
                 sortMode = try {
-                    SortMode.valueOf(initial.sortMode)
+                    SortMode.valueOf(initial.folderSortMode)
                 } catch (_: IllegalArgumentException) { SortMode.DATE }
                 sortOrder = try {
-                    SortOrder.valueOf(initial.sortOrder)
+                    SortOrder.valueOf(initial.folderSortOrder)
                 } catch (_: IllegalArgumentException) { SortOrder.DESC }
                 loadFolders()
             }
-            // ② 响应外部排序变更（DataStore 被其他界面写入时自动同步）
+            // ② 响应外部排序变更（设置页面写入时自动同步）
             viewModelScope.launch {
                 application.settingsFlow().drop(1).collect { settings ->
                     val newMode = try {
-                        SortMode.valueOf(settings.sortMode)
+                        SortMode.valueOf(settings.folderSortMode)
                     } catch (_: IllegalArgumentException) { SortMode.DATE }
                     val newOrder = try {
-                        SortOrder.valueOf(settings.sortOrder)
+                        SortOrder.valueOf(settings.folderSortOrder)
                     } catch (_: IllegalArgumentException) { SortOrder.DESC }
                     if (newMode != sortMode || newOrder != sortOrder) {
                         sortMode = newMode
@@ -95,7 +95,7 @@ class FolderListViewModel(
     fun updateSortMode(mode: SortMode) {
         sortMode = mode
         application?.let { app ->
-            viewModelScope.launch { app.saveSortMode(mode.name) }
+            viewModelScope.launch { app.saveFolderSortMode(mode.name) }
         }
         loadFolders()
     }
@@ -103,7 +103,7 @@ class FolderListViewModel(
     fun updateSortOrder(order: SortOrder) {
         sortOrder = order
         application?.let { app ->
-            viewModelScope.launch { app.saveSortOrder(order.name) }
+            viewModelScope.launch { app.saveFolderSortOrder(order.name) }
         }
         loadFolders()
     }
@@ -112,8 +112,14 @@ class FolderListViewModel(
         val newOrder = if (sortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
         sortOrder = newOrder
         application?.let { app ->
-            viewModelScope.launch { app.saveSortOrder(newOrder.name) }
+            viewModelScope.launch { app.saveFolderSortOrder(newOrder.name) }
         }
+        loadFolders()
+    }
+
+    /** 重试加载（错误恢复） */
+    fun retry() {
+        skipNextLoading = false
         loadFolders()
     }
 

@@ -68,8 +68,22 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
-            // Sort section
-            SettingsSectionHeader("默认排序")
+            // Folder sort section
+            SettingsSectionHeader("首页排序")
+            SortModePicker(
+                currentMode = state.folderSortMode,
+                currentOrder = state.folderSortOrder,
+                onModeChange = { viewModel.setFolderSortMode(it) },
+                onOrderToggle = {
+                    val newOrder = if (state.folderSortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
+                    viewModel.setFolderSortOrder(newOrder)
+                }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+            // Media sort section
+            SettingsSectionHeader("图片排序")
             SortModePicker(
                 currentMode = state.sortMode,
                 currentOrder = state.sortOrder,

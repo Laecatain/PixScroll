@@ -133,7 +133,7 @@ fun FolderListScreen(
                         Text(s.message, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error)
                         Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = { viewModel.updateSortMode(viewModel.sortMode) }) {
+                        Button(onClick = { viewModel.retry() }) {
                             Text("重试")
                         }
                     }
