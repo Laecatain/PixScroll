@@ -29,14 +29,12 @@ import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.reader.data.model.MediaItem
 import com.example.reader.ui.theme.ThemeState
 import kotlin.math.abs
 import kotlin.math.sqrt
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 private const val TAG = "ContinuousScroll"
@@ -66,8 +64,7 @@ fun ContinuousScrollReader(
     initialIndex: Int = 0,
     onBack: () -> Unit,
     onSwitchMode: () -> Unit,
-    onVideoClick: (MediaItem) -> Unit,
-    onIndexChange: (Int) -> Unit = {}
+    onVideoClick: (MediaItem) -> Unit
 ) {
     // ── 缩放 ──
     var showToolbar by remember { mutableStateOf(true) }
@@ -86,35 +83,19 @@ fun ContinuousScrollReader(
     val sliderInteractionSource = remember { MutableInteractionSource() }
     val isDragged by sliderInteractionSource.collectIsDraggedAsState()
 
-    // 冷启动: 计算居中偏移，用 initialFirstVisibleItemScrollOffset 使目标图片垂直居中
+    // 冷启动: 用 initialFirstVisibleItemIndex 直接定位，首帧无闪烁
     val safeInitial = initialIndex.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = safeInitial)
     val configuration = LocalConfiguration.current
     val screenHeightDp = configuration.screenHeightDp.dp
-    val density = LocalDensity.current
-    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
-    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
-    val coldCenteringOffset = remember(safeInitial, mediaItems) {
-        calculateCenteringOffset(mediaItems, safeInitial, screenHeightPx, screenWidthPx)
-    }
-    val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = safeInitial,
-        initialFirstVisibleItemScrollOffset = coldCenteringOffset
-    )
 
     // isScrollInProgress 在 animateScrollToItem 动画期间为 true
     val isScrolling = listState.isScrollInProgress
 
-    // 状态锁：用 snapshotFlow 监听 firstVisibleItemIndex，
-    // distinctUntilChanged 过滤连续相同值，避免滚动时过度回调
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex }
-            .distinctUntilChanged()
-            .collect { raw ->
-                val idx = raw.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
-                visibleIndex = idx
-                onIndexChange(idx)
-            }
-    }
+    // 跟踪可见索引
+    val idx = listState.firstVisibleItemIndex
+        .coerceIn(0, (totalCount - 1).coerceAtLeast(0))
+    LaunchedEffect(idx) { visibleIndex = idx }
 
     // 状态锁: 拖拽中或动画中不反写 sliderValue
     LaunchedEffect(visibleIndex, isDragged, isScrolling) {
@@ -130,9 +111,6 @@ fun ContinuousScrollReader(
                 if (count > 0) {
                     val target = initialIndex.coerceIn(0, count - 1)
                     Log.d(TAG, "热启动跳转: target=$target total=$count")
-                    // 根据当前 Viewport 尺寸计算居中偏移
-                    val vp = listState.layoutInfo.viewportSize.height.toFloat()
-                    val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx)
                     if (abs(target - visibleIndex) > LONG_JUMP_THRESHOLD) {
                         val midTarget = if (target > visibleIndex)
                             (target - LONG_JUMP_OFFSET).coerceAtLeast(0)
@@ -140,7 +118,7 @@ fun ContinuousScrollReader(
                             (target + LONG_JUMP_OFFSET).coerceAtMost(count - 1)
                         listState.scrollToItem(midTarget)
                     }
-                    listState.animateScrollToItem(target, scrollOffset = offset)
+                    listState.animateScrollToItem(target)
                     // 只执行一次
                     return@collect
                 }
@@ -269,11 +247,6 @@ fun ContinuousScrollReader(
                             val target = clampSliderTarget(sliderValue, totalCount)
                             sliderValue = target.toFloat()
                             scope.launch {
-                                // 跳转时也应用居中偏移，使目标图片居中显示
-                                val vp = listState.layoutInfo.viewportSize.height.toFloat()
-                                val offset = calculateCenteringOffset(
-                                    mediaItems, target, vp, screenWidthPx
-                                )
                                 val cur = visibleIndex
                                 if (abs(target - cur) > LONG_JUMP_THRESHOLD) {
                                     val mid = if (target > cur)
@@ -282,7 +255,7 @@ fun ContinuousScrollReader(
                                         (target + LONG_JUMP_OFFSET).coerceAtMost(totalCount - 1)
                                     listState.scrollToItem(mid)
                                 }
-                                listState.animateScrollToItem(target, scrollOffset = offset)
+                                listState.animateScrollToItem(target)
                             }
                         },
                         valueRange = 0f..(totalCount - 1).toFloat().coerceAtLeast(0f),
@@ -303,20 +276,6 @@ fun ContinuousScrollReader(
 // ═══════════════════════════════════ AspectRatio 占位 ═══════════════════════════════════
 
 private val DEFAULT_ASPECT_RATIO = 16f / 9f
-
-/** 计算首次跳转居中偏移。短图片负偏移垂直居中，长图片（超过一屏）返回 0 顶对齐。 */
-private fun calculateCenteringOffset(
-    mediaItems: List<MediaItem>,
-    targetIndex: Int,
-    viewportPx: Float,
-    screenWidthPx: Float
-): Int {
-    val ratio = mediaItems.getOrNull(targetIndex)?.aspectRatio
-        ?.takeIf { it > 0f } ?: DEFAULT_ASPECT_RATIO
-    val itemHeightPx = screenWidthPx / ratio  // ContentScale.FillWidth 下的实际渲染高度
-    val gap = (viewportPx - itemHeightPx) / 2f
-    return if (gap > 0) -gap.toInt() else 0   // 负偏移 = 内容前加边距
-}
 
 @Composable
 private fun ImageWithAspectPlaceholder(item: MediaItem) {

@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DarkMode
@@ -38,7 +37,6 @@ import coil.compose.AsyncImage
 import com.example.reader.data.model.MediaFolder
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
-import com.example.reader.ui.common.FastScroller
 import com.example.reader.ui.theme.ThemeState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,7 +51,6 @@ fun FolderListScreen(
 ) {
     val state by viewModel.state.collectAsState()
     var showSortMenu by remember { mutableStateOf(false) }
-    val gridState = rememberLazyGridState()
 
     Scaffold(
         topBar = {
@@ -148,24 +145,16 @@ fun FolderListScreen(
                         Text("未找到任何图片或视频", style = MaterialTheme.typography.bodyLarge)
                     }
                 } else {
-                    Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-                        LazyVerticalGrid(
-                            state = gridState,
-                            columns = GridCells.Fixed(2),
-                            contentPadding = PaddingValues(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(s.folders, key = { it.id }) { folder ->
-                                FolderCard(folder = folder, onClick = { onFolderClick(folder) })
-                            }
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        contentPadding = PaddingValues(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize().padding(padding)
+                    ) {
+                        items(s.folders, key = { it.id }) { folder ->
+                            FolderCard(folder = folder, onClick = { onFolderClick(folder) })
                         }
-                        FastScroller(
-                            gridState = gridState,
-                            itemCount = s.folders.size,
-                            modifier = Modifier.align(Alignment.CenterEnd)
-                        )
                     }
                 }
             }
