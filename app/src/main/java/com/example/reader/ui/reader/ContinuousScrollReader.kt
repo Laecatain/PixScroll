@@ -35,6 +35,7 @@ import com.example.reader.data.model.MediaItem
 import com.example.reader.ui.theme.ThemeState
 import kotlin.math.abs
 import kotlin.math.sqrt
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 private const val TAG = "ContinuousScroll"
@@ -64,7 +65,8 @@ fun ContinuousScrollReader(
     initialIndex: Int = 0,
     onBack: () -> Unit,
     onSwitchMode: () -> Unit,
-    onVideoClick: (MediaItem) -> Unit
+    onVideoClick: (MediaItem) -> Unit,
+    onIndexChange: (Int) -> Unit = {}
 ) {
     // ── 缩放 ──
     var showToolbar by remember { mutableStateOf(true) }
@@ -92,10 +94,17 @@ fun ContinuousScrollReader(
     // isScrollInProgress 在 animateScrollToItem 动画期间为 true
     val isScrolling = listState.isScrollInProgress
 
-    // 跟踪可见索引
-    val idx = listState.firstVisibleItemIndex
-        .coerceIn(0, (totalCount - 1).coerceAtLeast(0))
-    LaunchedEffect(idx) { visibleIndex = idx }
+    // 状态锁：用 snapshotFlow 监听 firstVisibleItemIndex，
+    // distinctUntilChanged 过滤连续相同值，避免滚动时过度回调
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .distinctUntilChanged()
+            .collect { raw ->
+                val idx = raw.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
+                visibleIndex = idx
+                onIndexChange(idx)
+            }
+    }
 
     // 状态锁: 拖拽中或动画中不反写 sliderValue
     LaunchedEffect(visibleIndex, isDragged, isScrolling) {
