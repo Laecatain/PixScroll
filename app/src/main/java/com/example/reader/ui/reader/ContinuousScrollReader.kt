@@ -37,6 +37,7 @@ import com.example.reader.ui.theme.ThemeState
 import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private const val TAG = "ContinuousScroll"
@@ -123,28 +124,25 @@ fun ContinuousScrollReader(
         }
     }
 
-    // 热启动: 监听 totalItemsCount，数据就绪后执行跳转（防竞态）
-    LaunchedEffect(initialIndex) {
+    // 热启动: 生命周期内只执行一次，数据就绪后跳转到 initialIndex。
+    // 注意 key 为 Unit 而非 initialIndex，避免 onIndexChange → setCurrentIndex → currentIndex 变化
+    // → ReaderScreen 传回新的 initialIndex → LaunchedEffect 重启 → 滚动冲突的无限循环。
+    LaunchedEffect(Unit) {
         snapshotFlow { listState.layoutInfo.totalItemsCount }
-            .collect { count ->
-                if (count > 0) {
-                    val target = initialIndex.coerceIn(0, count - 1)
-                    Log.d(TAG, "热启动跳转: target=$target total=$count")
-                    // 根据当前 Viewport 尺寸计算居中偏移
-                    val vp = listState.layoutInfo.viewportSize.height.toFloat()
-                    val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx)
-                    if (abs(target - visibleIndex) > LONG_JUMP_THRESHOLD) {
-                        val midTarget = if (target > visibleIndex)
-                            (target - LONG_JUMP_OFFSET).coerceAtLeast(0)
-                        else
-                            (target + LONG_JUMP_OFFSET).coerceAtMost(count - 1)
-                        listState.scrollToItem(midTarget)
-                    }
-                    listState.animateScrollToItem(target, scrollOffset = offset)
-                    // 只执行一次
-                    return@collect
-                }
-            }
+            .first { count -> count > 0 }
+        val target = initialIndex.coerceIn(0, listState.layoutInfo.totalItemsCount - 1)
+        Log.d(TAG, "热启动跳转: target=$target")
+        val vp = listState.layoutInfo.viewportSize.height.toFloat()
+        val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx)
+        val curIdx = listState.firstVisibleItemIndex
+        if (abs(target - curIdx) > LONG_JUMP_THRESHOLD) {
+            val mid = if (target > curIdx)
+                (target - LONG_JUMP_OFFSET).coerceAtLeast(0)
+            else
+                (target + LONG_JUMP_OFFSET).coerceAtMost(listState.layoutInfo.totalItemsCount - 1)
+            listState.scrollToItem(mid)
+        }
+        listState.animateScrollToItem(target, scrollOffset = offset)
     }
 
     Box(
