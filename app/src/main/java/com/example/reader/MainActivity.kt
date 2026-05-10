@@ -27,6 +27,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
+            // navController 必须在读取 ThemeState.themeMode 之前创建，
+            // 否则主题切换会触发整个 block 重组，rememberNavController() 生成新实例，
+            // 导致导航栈被清空（白屏/闪退）
+            val navController = rememberNavController()
+            val permissionsState = rememberMultiplePermissionsState(
+                permissions = PermissionHelper.requiredPermissions
+            )
+
             val colorScheme = when (ThemeState.themeMode) {
                 ThemeState.ThemeMode.LIGHT -> lightColorScheme()
                 ThemeState.ThemeMode.DARK -> darkColorScheme()
@@ -37,12 +45,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
             MaterialTheme(colorScheme = colorScheme) {
-                val permissionsState = rememberMultiplePermissionsState(
-                    permissions = PermissionHelper.requiredPermissions
-                )
-
                 if (permissionsState.allPermissionsGranted) {
-                    val navController = rememberNavController()
                     NavGraph(navController = navController)
                 } else {
                     PermissionScreen(

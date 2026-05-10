@@ -81,8 +81,8 @@ fun ContinuousScrollReader(
     val scope = rememberCoroutineScope()
 
     // ── 滑块状态 ──
-    var sliderValue by remember { mutableFloatStateOf(0f) }
-    var visibleIndex by remember { mutableStateOf(0) }
+    var sliderValue by remember(safeInitial) { mutableFloatStateOf(safeInitial.toFloat()) }
+    var visibleIndex by remember(safeInitial) { mutableStateOf(safeInitial) }
     var isUserInteracting by remember { mutableStateOf(false) }
 
     // 状态锁: MutableInteractionSource 感知 Slider 拖拽
@@ -107,10 +107,17 @@ fun ContinuousScrollReader(
     // isScrollInProgress 在 animateScrollToItem 动画期间为 true
     val isScrolling = listState.isScrollInProgress
 
-    // 状态锁：用 snapshotFlow 监听 firstVisibleItemIndex，
-    // distinctUntilChanged 过滤连续相同值，避免滚动时过度回调
+    // 状态锁：用 snapshotFlow 监听视口中心位置的 item，
+    // 找到中心最接近屏幕中心的那张图，而非最顶部的 firstVisibleItemIndex
     LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex }
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val viewportCenter =
+                (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+            layoutInfo.visibleItemsInfo
+                .minByOrNull { abs((it.offset + it.size / 2) - viewportCenter) }
+                ?.index ?: listState.firstVisibleItemIndex
+        }
             .distinctUntilChanged()
             .collect { raw ->
                 val idx = raw.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
@@ -132,19 +139,22 @@ fun ContinuousScrollReader(
         val count = snapshotFlow { listState.layoutInfo.totalItemsCount }
             .first { it > 0 }
         val target = initialIndex.coerceIn(0, count - 1)
-        if (listState.firstVisibleItemIndex == target) return@LaunchedEffect
+        // 状态锁：如果当前正在看的已经是目标，则跳过（打破 onIndexChange 造成的反馈环）
+        if (visibleIndex == target) return@LaunchedEffect
         Log.d(TAG, "热启动跳转: target=$target total=$count")
         try {
             val vp = listState.layoutInfo.viewportSize.height.toFloat()
             val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx, screenHeightPx)
-            if (abs(target - listState.firstVisibleItemIndex) > LONG_JUMP_THRESHOLD) {
-                val midTarget = if (target > listState.firstVisibleItemIndex)
+            if (abs(target - visibleIndex) > LONG_JUMP_THRESHOLD) {
+                val midTarget = if (target > visibleIndex)
                     (target - LONG_JUMP_OFFSET).coerceAtLeast(0)
                 else
                     (target + LONG_JUMP_OFFSET).coerceAtMost(count - 1)
                 listState.scrollToItem(midTarget)
             }
             listState.animateScrollToItem(target, scrollOffset = offset)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (_: Exception) {
             // composable 正在 dispose 时滚动可能抛异常，安全忽略
         }
