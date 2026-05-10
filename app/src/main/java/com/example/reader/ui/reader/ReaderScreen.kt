@@ -63,6 +63,7 @@ fun ReaderScreen(
     when (state.currentMode) {
         ReaderMode.ContinuousScroll -> ContinuousScrollReader(
             mediaItems = state.mediaItems,
+            initialIndex = state.currentIndex,
             onBack = onBack,
             onSwitchMode = { viewModel.switchMode(ReaderMode.Pager) },
             onVideoClick = onVideoClick

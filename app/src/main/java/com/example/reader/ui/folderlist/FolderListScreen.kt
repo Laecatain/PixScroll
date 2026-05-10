@@ -111,8 +111,8 @@ fun FolderListScreen(
             )
         }
     ) { padding ->
-        when {
-            state.isLoading -> {
+        when (val s = state) {
+            is FolderUiState.Loading -> {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(padding),
                     contentAlignment = Alignment.Center
@@ -120,18 +120,15 @@ fun FolderListScreen(
                     CircularProgressIndicator()
                 }
             }
-            state.error != null -> {
+            is FolderUiState.Error -> {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(padding),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("加载失败", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            state.error ?: "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
+                        Text(s.message, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error)
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(onClick = { viewModel.updateSortMode(viewModel.sortMode) }) {
                             Text("重试")
@@ -139,24 +136,25 @@ fun FolderListScreen(
                     }
                 }
             }
-            state.folders.isEmpty() -> {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("未找到任何图片或视频", style = MaterialTheme.typography.bodyLarge)
-                }
-            }
-            else -> {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize().padding(padding)
-                ) {
-                    items(state.folders, key = { it.id }) { folder ->
-                        FolderCard(folder = folder, onClick = { onFolderClick(folder) })
+            is FolderUiState.Success -> {
+                if (s.folders.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize().padding(padding),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("未找到任何图片或视频", style = MaterialTheme.typography.bodyLarge)
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        contentPadding = PaddingValues(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize().padding(padding)
+                    ) {
+                        items(s.folders, key = { it.id }) { folder ->
+                            FolderCard(folder = folder, onClick = { onFolderClick(folder) })
+                        }
                     }
                 }
             }
