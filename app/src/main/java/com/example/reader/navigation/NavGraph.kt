@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import androidx.lifecycle.Lifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -33,6 +34,14 @@ object Routes {
     fun mediaGrid(parentId: Long) = "media_grid/$parentId"
     fun reader(parentId: Long, initialIndex: Int = 0) = "reader/$parentId/$initialIndex"
     fun videoPlayer(videoUri: String) = "video_player/${Uri.encode(videoUri)}"
+}
+
+private fun NavHostController.safePopBackStack() {
+    val currentEntry = currentBackStackEntry
+    if (currentEntry?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true &&
+        previousBackStackEntry != null) {
+        popBackStack()
+    }
 }
 
 @Composable
@@ -67,7 +76,7 @@ fun NavGraph(navController: NavHostController) {
                         navController.navigate(Routes.videoPlayer(uri.toString()))
                     }
                 },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.safePopBackStack() }
             )
         }
 
@@ -83,7 +92,7 @@ fun NavGraph(navController: NavHostController) {
             ReaderScreen(
                 parentId = parentId,
                 initialIndex = initialIndex,
-                onBack = { navController.popBackStack() },
+                onBack = { navController.safePopBackStack() },
                 onVideoClick = { item ->
                     item.uri?.let { uri ->
                         navController.navigate(Routes.videoPlayer(uri.toString()))
@@ -99,13 +108,13 @@ fun NavGraph(navController: NavHostController) {
             val uriString = backStackEntry.arguments?.getString("videoUri") ?: return@composable
             VideoPlayerScreen(
                 videoUri = Uri.parse(uriString),
-                onBack = { navController.popBackStack() }
+                onBack = { navController.safePopBackStack() }
             )
         }
 
         composable(Routes.SETTINGS) {
             SettingsScreen(
-                onBack = { navController.popBackStack() },
+                onBack = { navController.safePopBackStack() },
                 onAbout = { navController.navigate(Routes.ABOUT) }
             )
         }
@@ -120,12 +129,12 @@ fun NavGraph(navController: NavHostController) {
                         navController.navigate(Routes.videoPlayer(uri.toString()))
                     }
                 },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.safePopBackStack() }
             )
         }
 
         composable(Routes.ABOUT) {
-            AboutScreen(onBack = { navController.popBackStack() })
+            AboutScreen(onBack = { navController.safePopBackStack() })
         }
     }
 }
