@@ -109,6 +109,7 @@ class ReaderViewModel(
         viewModelScope.launch {
             val prevState = _state.value
             val prevUri = prevState.mediaItems.getOrNull(prevState.currentIndex)?.uri?.toString()
+            var isFirstEmission = true
             try {
                 repository.getMediaByFolder(
                     parentId,
@@ -117,17 +118,28 @@ class ReaderViewModel(
                 ).collect { items ->
                     val folderName = items.firstOrNull()?.folderPath
                         ?.substringBeforeLast("/")?.substringAfterLast("/") ?: ""
-                    // 索引修正: 排序变更后通过 URI 重新定位当前图片
-                    val reconciledIndex = if (prevState.mediaItems.isEmpty()) {
-                        // 首次加载: 保留 initialIndex
-                        prevState.currentIndex
+                    // 索引修正: 首次发射用 prevState 判断首次加载，
+                    // 后续发射（Phase 2 合并）从当前状态修正，避免覆盖用户已滚动的位置
+                    val reconciledIndex = if (isFirstEmission) {
+                        isFirstEmission = false
+                        if (prevState.mediaItems.isEmpty()) {
+                            prevState.currentIndex
+                        } else {
+                            val found = prevUri?.let { uri ->
+                                items.indexOfFirst { it.uri?.toString() == uri }
+                                    .takeIf { it >= 0 }
+                            }
+                            found ?: prevState.currentIndex
+                                .coerceIn(0, (items.size - 1).coerceAtLeast(0))
+                        }
                     } else {
-                        val found = prevUri?.let { uri ->
+                        val curIndex = _state.value.currentIndex
+                        val curUri = _state.value.mediaItems.getOrNull(curIndex)?.uri?.toString()
+                        val found = curUri?.let { uri ->
                             items.indexOfFirst { it.uri?.toString() == uri }
                                 .takeIf { it >= 0 }
                         }
-                        found ?: prevState.currentIndex
-                            .coerceIn(0, (items.size - 1).coerceAtLeast(0))
+                        found ?: curIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
                     }
                     _state.value = _state.value.copy(
                         mediaItems = items,

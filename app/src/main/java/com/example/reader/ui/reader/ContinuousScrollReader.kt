@@ -81,15 +81,15 @@ fun ContinuousScrollReader(
     val safeInitial = initialIndex.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
     val scope = rememberCoroutineScope()
 
-    // 数据集身份 Key：仅当 mediaItems 引用变化（切换文件夹/排序）时重置本地状态，
-    // 彻底解耦 ViewModel 的 currentIndex 回写，杜绝异步延迟导致的 visibleIndex 抽搐
-    val dataSetKey = remember(mediaItems) { Any() }
+    // 数据集身份 Key：使用 parentId 作为文件夹唯一标识，在同一文件夹内
+    // 不受 mediaItems 引用变化（Phase 1→Phase 2 合并发射、排序变更）影响。
+    // 彻底解耦 ViewModel 的 currentIndex 回写，杜绝异步延迟导致的 visibleIndex 抽搐。
+    val dataSetKey = mediaItems.firstOrNull()?.parentId ?: -1L
 
     // ── 滑块状态 ──
     var sliderValue by remember(dataSetKey) { mutableFloatStateOf(safeInitial.toFloat()) }
     var visibleIndex by remember(dataSetKey) { mutableStateOf(safeInitial) }
     var isUserInteracting by remember { mutableStateOf(false) }
-    var isInitialScrollDone by remember(dataSetKey) { mutableStateOf(false) }
 
     // 状态锁: MutableInteractionSource 感知 Slider 拖拽
     val sliderInteractionSource = remember { MutableInteractionSource() }
@@ -138,14 +138,15 @@ fun ContinuousScrollReader(
         }
     }
 
-    // 热启动/数据刷新跳转: 只在 mediaItems 发生变化且尚未执行过初始滚动时触发，
-    // isInitialScrollDone 标记位防止 mediaItems 微小波动导致反复跳转
+    // 热启动/数据刷新跳转: 只在 mediaItems 发生变化且当前位置与目标不一致时触发。
+    // parentId 稳定的 dataSetKey 确保 Phase 2 数据合并时 visibleIndex 不被重置，
+    // visibleIndex == target 守卫防止非必要的重复滚动。
     LaunchedEffect(mediaItems) {
-        if (mediaItems.isEmpty() || isInitialScrollDone) return@LaunchedEffect
         try {
             val count = snapshotFlow { listState.layoutInfo.totalItemsCount }
                 .first { it > 0 }
             val target = initialIndex.coerceIn(0, count - 1)
+            if (visibleIndex == target) return@LaunchedEffect
             Log.d(TAG, "热启动跳转: target=$target total=$count")
             val vp = listState.layoutInfo.viewportSize.height.toFloat()
             val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx, screenHeightPx)
@@ -157,7 +158,6 @@ fun ContinuousScrollReader(
                 listState.scrollToItem(midTarget)
             }
             listState.animateScrollToItem(target, scrollOffset = offset)
-            isInitialScrollDone = true
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
