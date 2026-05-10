@@ -6,6 +6,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -19,16 +21,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.reader.data.model.MediaItem
 import com.example.reader.ui.theme.ThemeState
-import kotlin.math.roundToInt
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -52,8 +54,16 @@ fun PagerReader(
     var sliderValue by remember { mutableFloatStateOf(initialIndex.toFloat()) }
     val currentPage = pagerState.currentPage
 
-    LaunchedEffect(currentPage) {
-        sliderValue = currentPage.toFloat()
+    // 策略1: 状态锁 —— MutableInteractionSource 感知拖拽，isScrollInProgress 感知翻页动画
+    val sliderInteractionSource = remember { MutableInteractionSource() }
+    val isDragged by sliderInteractionSource.collectIsDraggedAsState()
+    val isScrolling = pagerState.isScrollInProgress
+
+    // 只有无拖拽且无动画时才同步页码到滑块
+    LaunchedEffect(currentPage, isDragged, isScrolling) {
+        if (!isDragged && !isScrolling) {
+            sliderValue = currentPage.toFloat()
+        }
     }
 
     Box(
@@ -125,6 +135,7 @@ fun PagerReader(
             }
         }
 
+        // ── 顶部工具栏 ──
         AnimatedVisibility(
             visible = showToolbar,
             enter = fadeIn(),
@@ -161,6 +172,7 @@ fun PagerReader(
             }
         }
 
+        // ── 底部进度条 ──
         AnimatedVisibility(
             visible = showToolbar,
             enter = fadeIn(),
@@ -187,12 +199,24 @@ fun PagerReader(
                         value = sliderValue,
                         onValueChange = { sliderValue = it },
                         onValueChangeFinished = {
-                            val target = sliderValue.roundToInt().coerceIn(0, totalCount - 1)
-                            sliderValue = target.toFloat()  // 立即锁定目标，消除回退
-                            scope.launch { pagerState.scrollToPage(target) }
+                            val target = clampSliderTarget(sliderValue, totalCount)
+                            sliderValue = target.toFloat()
+
+                            scope.launch {
+                                // HorizontalPager 每页等宽，scrollToPage 始终瞬间完成
+                                if (abs(target - currentPage) > 10) {
+                                    val midTarget = if (target > currentPage)
+                                        (target - 3).coerceAtLeast(0)
+                                    else
+                                        (target + 3).coerceAtMost(totalCount - 1)
+                                    pagerState.scrollToPage(midTarget)
+                                }
+                                pagerState.animateScrollToPage(target)
+                            }
                         },
                         valueRange = 0f..(totalCount - 1).toFloat().coerceAtLeast(0f),
                         modifier = Modifier.fillMaxWidth(),
+                        interactionSource = sliderInteractionSource,
                         colors = SliderDefaults.colors(
                             thumbColor = Color.White,
                             activeTrackColor = Color.White,

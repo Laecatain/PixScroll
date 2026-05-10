@@ -51,7 +51,9 @@ class AndroidMediaRepository(
         MediaStore.Files.FileColumns.DATA,
         MediaStore.Files.FileColumns.MEDIA_TYPE,
         MediaStore.Files.FileColumns.ORIENTATION,
-        MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME
+        MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME,
+        MediaStore.MediaColumns.WIDTH,
+        MediaStore.MediaColumns.HEIGHT
     )
 
     override fun getAllFolders(
@@ -211,6 +213,8 @@ class AndroidMediaRepository(
             val parentCol = it.getColumnIndex(MediaStore.Files.FileColumns.PARENT)
             val orientCol = it.getColumnIndex(MediaStore.Files.FileColumns.ORIENTATION)
             val mediaTypeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
+            val widthCol = it.getColumnIndex(MediaStore.MediaColumns.WIDTH)
+            val heightCol = it.getColumnIndex(MediaStore.MediaColumns.HEIGHT)
 
             while (it.moveToNext()) {
                 val id = if (idCol >= 0) it.getLong(idCol) else continue
@@ -222,6 +226,8 @@ class AndroidMediaRepository(
                 val parent = if (parentCol >= 0) it.getLong(parentCol) else 0L
                 val orientation = if (orientCol >= 0) it.getInt(orientCol) else 0
                 val mediaType = if (mediaTypeCol >= 0) it.getInt(mediaTypeCol) else 0
+                val w = if (widthCol >= 0) it.getInt(widthCol) else 0
+                val h = if (heightCol >= 0) it.getInt(heightCol) else 0
 
                 items.add(
                     MediaItem(
@@ -233,7 +239,9 @@ class AndroidMediaRepository(
                         folderPath = data,
                         parentId = parent,
                         orientation = orientation,
-                        mediaType = mediaType
+                        mediaType = mediaType,
+                        width = w,
+                        height = h
                     )
                 )
             }
@@ -281,6 +289,8 @@ class AndroidMediaRepository(
             val parentCol = it.getColumnIndex(MediaStore.Files.FileColumns.PARENT)
             val orientCol = it.getColumnIndex(MediaStore.Files.FileColumns.ORIENTATION)
             val mediaTypeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
+            val widthCol = it.getColumnIndex(MediaStore.MediaColumns.WIDTH)
+            val heightCol = it.getColumnIndex(MediaStore.MediaColumns.HEIGHT)
 
             while (it.moveToNext()) {
                 val id = if (idCol >= 0) it.getLong(idCol) else continue
@@ -292,6 +302,8 @@ class AndroidMediaRepository(
                 val parent = if (parentCol >= 0) it.getLong(parentCol) else 0L
                 val orientation = if (orientCol >= 0) it.getInt(orientCol) else 0
                 val mediaType = if (mediaTypeCol >= 0) it.getInt(mediaTypeCol) else 0
+                val w = if (widthCol >= 0) it.getInt(widthCol) else 0
+                val h = if (heightCol >= 0) it.getInt(heightCol) else 0
 
                 items.add(
                     MediaItem(
@@ -303,7 +315,9 @@ class AndroidMediaRepository(
                         folderPath = data,
                         parentId = parent,
                         orientation = orientation,
-                        mediaType = mediaType
+                        mediaType = mediaType,
+                        width = w,
+                        height = h
                     )
                 )
             }
