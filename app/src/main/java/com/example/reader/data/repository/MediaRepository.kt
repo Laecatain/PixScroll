@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import com.example.reader.util.FolderCache
 import java.io.File
 
 enum class SortMode { NAME, DATE, SIZE }
@@ -31,7 +32,10 @@ interface MediaRepository {
     fun searchMedia(query: String): Flow<List<MediaItem>>
 }
 
-class AndroidMediaRepository(private val contentResolver: ContentResolver) : MediaRepository {
+class AndroidMediaRepository(
+    private val contentResolver: ContentResolver,
+    private val cacheDir: File? = null
+) : MediaRepository {
 
     private val unifiedUri = MediaStore.Files.getContentUri("external")
     private var cachedHiddenParents: Set<Long>? = null
@@ -156,6 +160,7 @@ class AndroidMediaRepository(private val contentResolver: ContentResolver) : Med
             if (sortOrder == SortOrder.ASC) list.reversed() else list
         }
 
+        cacheDir?.let { FolderCache.saveFolders(it, folders) }
         emit(folders)
     }.flowOn(Dispatchers.IO)
 
@@ -309,12 +314,22 @@ class AndroidMediaRepository(private val contentResolver: ContentResolver) : Med
 
     private fun getHiddenFolderParentIds(): Set<Long> {
         cachedHiddenParents?.let { return it }
+
+        // 1. 文件缓存（跨进程持久化）
+        val fileCached = cacheDir?.let { FolderCache.loadHiddenParents(it) }
+        if (fileCached != null && fileCached.isNotEmpty()) {
+            cachedHiddenParents = fileCached
+            return fileCached
+        }
+
+        // 2. 首次启动：扫描文件系统
         val hiddenParents = mutableSetOf<Long>()
         val storageDirs = getStorageRoots()
         for (root in storageDirs) {
             findNomediaFolders(root, hiddenParents)
         }
         cachedHiddenParents = hiddenParents
+        cacheDir?.let { FolderCache.saveHiddenParents(it, hiddenParents) }
         return hiddenParents
     }
 

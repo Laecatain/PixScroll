@@ -12,14 +12,17 @@ import com.example.reader.data.repository.AndroidMediaRepository
 import com.example.reader.data.repository.MediaRepository
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
+import com.example.reader.util.FolderCache
 import com.example.reader.util.PreferenceKeys
 import com.example.reader.util.dataStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class FolderListState(
     val folders: List<MediaFolder> = emptyList(),
@@ -42,7 +45,13 @@ class FolderListViewModel(
 
     init {
         viewModelScope.launch {
-            if (application != null) {
+            // 1. 先展示缓存（秒出），同时读取排序偏好
+            val cacheDir = application?.cacheDir
+            if (cacheDir != null) {
+                val cached = withContext(Dispatchers.IO) { FolderCache.loadFolders(cacheDir) }
+                if (cached.isNotEmpty()) {
+                    _state.value = FolderListState(folders = cached, isLoading = false)
+                }
                 val prefs = application.dataStore.data.first()
                 sortMode = try {
                     SortMode.valueOf(prefs[PreferenceKeys.SORT_MODE] ?: "DATE")
@@ -51,6 +60,8 @@ class FolderListViewModel(
                     SortOrder.valueOf(prefs[PreferenceKeys.SORT_ORDER] ?: "DESC")
                 } catch (_: IllegalArgumentException) { SortOrder.DESC }
             }
+
+            // 2. 再查询 MediaStore 更新真实数据
             loadFolders()
         }
     }
@@ -89,7 +100,7 @@ class FolderListViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             return FolderListViewModel(
-                AndroidMediaRepository(application.contentResolver),
+                AndroidMediaRepository(application.contentResolver, application.cacheDir),
                 application
             ) as T
         }
