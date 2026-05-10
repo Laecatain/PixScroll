@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.*
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,7 +41,8 @@ fun PagerReader(
     initialIndex: Int,
     onBack: () -> Unit,
     onSwitchMode: () -> Unit,
-    onVideoClick: (MediaItem) -> Unit
+    onVideoClick: (MediaItem) -> Unit,
+    onIndexChange: (Int) -> Unit = {}
 ) {
     var showToolbar by remember { mutableStateOf(true) }
     var scale by remember { mutableFloatStateOf(1f) }
@@ -64,6 +66,13 @@ fun PagerReader(
         if (!isDragged && !isScrolling) {
             sliderValue = currentPage.toFloat()
         }
+    }
+
+    // 监听翻页位置，同步到 ViewModel（独立于滑块逻辑，使用 snapshotFlow 避免过度回调）
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }
+            .distinctUntilChanged()
+            .collect { page -> onIndexChange(page) }
     }
 
     Box(

@@ -7,6 +7,8 @@ import android.provider.MediaStore
 import com.example.reader.data.model.MediaFolder
 import com.example.reader.data.model.MediaItem
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -55,6 +57,29 @@ class AndroidMediaRepository(
         MediaStore.MediaColumns.WIDTH,
         MediaStore.MediaColumns.HEIGHT
     )
+
+    // ── FileTreeWalk 后备扫描用常量 ──
+    private val IMAGE_EXTENSIONS = setOf(
+        "jpg", "jpeg", "png", "webp", "gif", "bmp",
+        "heic", "heif", "avif", "tiff", "tif"
+    )
+
+    private fun estimateMimeType(extension: String): String = when (extension) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "webp" -> "image/webp"
+        "gif" -> "image/gif"
+        "bmp" -> "image/bmp"
+        "heic", "heif" -> "image/heic"
+        "avif" -> "image/avif"
+        "tiff", "tif" -> "image/tiff"
+        "mp4" -> "video/mp4"
+        "mkv" -> "video/x-matroska"
+        "webm" -> "video/webm"
+        "avi" -> "video/x-msvideo"
+        "mov" -> "video/quicktime"
+        else -> "image/*"
+    }
 
     override fun getAllFolders(
         sortMode: SortMode,
@@ -193,6 +218,7 @@ class AndroidMediaRepository(
         }
         val direction = if (sortOrder == SortOrder.DESC) "DESC" else "ASC"
 
+        // ── Phase 1: MediaStore 快路径 ──
         val cursor = contentResolver.query(
             unifiedUri,
             fileProjection,
@@ -202,6 +228,7 @@ class AndroidMediaRepository(
         )
 
         val items = mutableListOf<MediaItem>()
+        var folderPath = ""
 
         cursor?.use {
             val idCol = it.getColumnIndex(MediaStore.Files.FileColumns._ID)
@@ -229,6 +256,10 @@ class AndroidMediaRepository(
                 val w = if (widthCol >= 0) it.getInt(widthCol) else 0
                 val h = if (heightCol >= 0) it.getInt(heightCol) else 0
 
+                if (folderPath.isEmpty() && data.isNotEmpty()) {
+                    folderPath = data.substringBeforeLast("/")
+                }
+
                 items.add(
                     MediaItem(
                         uri = ContentUris.withAppendedId(unifiedUri, id),
@@ -247,7 +278,74 @@ class AndroidMediaRepository(
             }
         }
 
+        // 优先发射 MediaStore 数据，保证冷启动速度
         emit(items)
+
+        // ── Phase 2: 文件系统慢路径（FileTreeWalk 补偿 MediaStore 漏索引文件）──
+        if (folderPath.isNotEmpty() && folderPath != "/") {
+            val fileDir = File(folderPath)
+            if (fileDir.isDirectory) {
+                // 收集已有文件的绝对路径，用于去重
+                val existingPaths = items.map { it.folderPath }.filter { it.isNotEmpty() }.toHashSet()
+                val fileItems = mutableListOf<MediaItem>()
+
+                try {
+                    fileDir.walkTopDown()
+                        .onEnter { dir ->
+                            // 跳过 .nomedia 目录和系统黑名单目录
+                            dir.name != "Android" && !dir.name.startsWith(".")
+                        }
+                        .filter { file ->
+                            file.isFile &&
+                                file.extension.lowercase() in IMAGE_EXTENSIONS &&
+                                file.absolutePath !in existingPaths
+                        }
+                        .forEach { file ->
+                            // 每条文件检查协程取消，支持 ViewModel 销毁时中断扫描
+                            currentCoroutineContext().ensureActive()
+                            val ext = file.extension.lowercase()
+                            val mime = estimateMimeType(ext)
+                            fileItems.add(
+                                MediaItem(
+                                    uri = android.net.Uri.fromFile(file),
+                                    name = file.name,
+                                    mimeType = mime,
+                                    size = file.length(),
+                                    dateModified = file.lastModified(),
+                                    folderPath = file.absolutePath,
+                                    parentId = parentId,
+                                    orientation = 0,
+                                    mediaType = if (mime.startsWith("video/"))
+                                        MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                                    else
+                                        MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE,
+                                    width = 0,
+                                    height = 0
+                                )
+                            )
+                        }
+                } catch (_: SecurityException) {
+                    // 无权限读取时静默跳过，不阻断已有数据
+                }
+
+                if (fileItems.isNotEmpty()) {
+                    // 合并后重新排序，确保 UI 排序与用户选择一致
+                    val allItems = items + fileItems
+                    val sorted = when (sortMode) {
+                        SortMode.NAME -> allItems.sortedBy { it.name.lowercase() }.let {
+                            if (sortOrder == SortOrder.DESC) it.reversed() else it
+                        }
+                        SortMode.DATE -> allItems.sortedBy { it.dateModified }.let {
+                            if (sortOrder == SortOrder.DESC) it.reversed() else it
+                        }
+                        SortMode.SIZE -> allItems.sortedBy { it.size }.let {
+                            if (sortOrder == SortOrder.DESC) it.reversed() else it
+                        }
+                    }
+                    emit(sorted)
+                }
+            }
+        }
     }.flowOn(Dispatchers.IO)
 
     override fun searchMedia(query: String): Flow<List<MediaItem>> = flow {
