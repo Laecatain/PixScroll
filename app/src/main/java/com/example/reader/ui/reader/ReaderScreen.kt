@@ -61,7 +61,7 @@ fun ReaderScreen(
         return
     }
 
-    val onIndexChange = remember { { index: Int -> viewModel.setCurrentIndex(index) } }
+    val onIndexChange = remember(viewModel) { viewModel::setCurrentIndex }
 
     when (state.currentMode) {
         ReaderMode.ContinuousScroll -> ContinuousScrollReader(

@@ -71,7 +71,6 @@ fun PagerReader(
     // 监听翻页位置，同步到 ViewModel（独立于滑块逻辑，使用 snapshotFlow 避免过度回调）
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }
-            .distinctUntilChanged()
             .collect { page -> onIndexChange(page) }
     }
 

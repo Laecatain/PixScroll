@@ -17,6 +17,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -36,8 +37,13 @@ fun FastScroller(
     if (itemCount <= 1) return
 
     val scope = rememberCoroutineScope()
+    var scrollJob by remember { mutableStateOf<Job?>(null) }
     var isDragging by remember { mutableStateOf(false) }
     val isScrolling = gridState.isScrollInProgress
+
+    // 手势位置 → 目标索引 映射
+    fun targetIndexAt(y: Float, height: Float) =
+        ((y / height).coerceIn(0f, 1f) * (itemCount - 1)).toInt().coerceIn(0, itemCount - 1)
 
     val alpha = remember { Animatable(0f) }
     LaunchedEffect(isDragging, isScrolling) {
@@ -51,9 +57,7 @@ fun FastScroller(
 
     val progress by remember(itemCount) {
         derivedStateOf {
-            val total = itemCount.coerceAtLeast(1)
-            if (total <= 1) 0f
-            else gridState.firstVisibleItemIndex.toFloat() / (total - 1).toFloat()
+            gridState.firstVisibleItemIndex.toFloat() / (itemCount - 1).toFloat()
         }
     }
 
@@ -74,14 +78,14 @@ fun FastScroller(
                 detectVerticalDragGestures(
                     onDragStart = { offset ->
                         isDragging = true
-                        val p = (offset.y / size.height).coerceIn(0f, 1f)
-                        val target = (p * (itemCount - 1)).toInt().coerceIn(0, itemCount - 1)
-                        scope.launch { gridState.scrollToItem(target) }
+                        val target = targetIndexAt(offset.y, size.height)
+                        scrollJob?.cancel()
+                        scrollJob = scope.launch { gridState.scrollToItem(target) }
                     },
                     onVerticalDrag = { change, _ ->
-                        val p = (change.position.y / size.height).coerceIn(0f, 1f)
-                        val target = (p * (itemCount - 1)).toInt().coerceIn(0, itemCount - 1)
-                        scope.launch { gridState.scrollToItem(target) }
+                        val target = targetIndexAt(change.position.y, size.height)
+                        scrollJob?.cancel()
+                        scrollJob = scope.launch { gridState.scrollToItem(target) }
                     },
                     onDragEnd = { isDragging = false },
                     onDragCancel = { isDragging = false }

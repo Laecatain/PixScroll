@@ -93,7 +93,7 @@ fun ContinuousScrollReader(
     val density = LocalDensity.current
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
-    val coldCenteringOffset = remember(safeInitial, mediaItems) {
+    val coldCenteringOffset = remember(safeInitial, mediaItems.getOrNull(safeInitial)) {
         calculateCenteringOffset(mediaItems, safeInitial, screenHeightPx, screenWidthPx)
     }
     val listState = rememberLazyListState(
