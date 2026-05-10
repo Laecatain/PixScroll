@@ -35,6 +35,7 @@ fun ReaderScreen(
     )
 ) {
     val state by viewModel.state.collectAsState()
+    val onIndexChange = remember(viewModel) { viewModel::setCurrentIndex }
 
     if (state.isLoading) {
         Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
@@ -60,8 +61,6 @@ fun ReaderScreen(
         }
         return
     }
-
-    val onIndexChange = remember(viewModel) { viewModel::setCurrentIndex }
 
     when (state.currentMode) {
         ReaderMode.ContinuousScroll -> ContinuousScrollReader(

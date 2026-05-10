@@ -2,18 +2,22 @@ package com.example.reader.data.repository
 
 import android.content.ContentResolver
 import android.content.ContentUris
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import com.example.reader.data.model.MediaFolder
 import com.example.reader.data.model.MediaItem
+import com.example.reader.util.DimensionRecord
+import com.example.reader.util.FolderCache
+import com.example.reader.util.MediaDimensionsCache
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import com.example.reader.util.FolderCache
-import java.io.File
 
 enum class SortMode { NAME, DATE, SIZE }
 enum class SortOrder { ASC, DESC }
@@ -33,6 +37,12 @@ interface MediaRepository {
 
     fun searchMedia(query: String): Flow<List<MediaItem>>
 }
+
+private val IMAGE_EXTENSIONS = setOf(
+    "jpg", "jpeg", "png", "gif", "webp", "bmp", "avif", "heic", "heif"
+)
+private val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "avi", "mov", "wmv", "flv", "3gp")
+private val ALL_MEDIA_EXTENSIONS = IMAGE_EXTENSIONS + VIDEO_EXTENSIONS
 
 class AndroidMediaRepository(
     private val contentResolver: ContentResolver,
@@ -58,28 +68,9 @@ class AndroidMediaRepository(
         MediaStore.MediaColumns.HEIGHT
     )
 
-    // ── FileTreeWalk 后备扫描用常量 ──
-    private val IMAGE_EXTENSIONS = setOf(
-        "jpg", "jpeg", "png", "webp", "gif", "bmp",
-        "heic", "heif", "avif", "tiff", "tif"
-    )
-
-    private fun estimateMimeType(extension: String): String = when (extension) {
-        "jpg", "jpeg" -> "image/jpeg"
-        "png" -> "image/png"
-        "webp" -> "image/webp"
-        "gif" -> "image/gif"
-        "bmp" -> "image/bmp"
-        "heic", "heif" -> "image/heic"
-        "avif" -> "image/avif"
-        "tiff", "tif" -> "image/tiff"
-        "mp4" -> "video/mp4"
-        "mkv" -> "video/x-matroska"
-        "webm" -> "video/webm"
-        "avi" -> "video/x-msvideo"
-        "mov" -> "video/quicktime"
-        else -> "image/*"
-    }
+    // ═══════════════════════════════════════════════════════════════
+    //  文件夹列表
+    // ═══════════════════════════════════════════════════════════════
 
     override fun getAllFolders(
         sortMode: SortMode,
@@ -191,11 +182,90 @@ class AndroidMediaRepository(
         emit(folders)
     }.flowOn(Dispatchers.IO)
 
+    // ═══════════════════════════════════════════════════════════════
+    //  媒体列表（Hybrid: MediaStore → FileTreeWalk）
+    // ═══════════════════════════════════════════════════════════════
+
     override fun getMediaByFolder(
         parentId: Long,
         sortMode: SortMode,
         sortOrder: SortOrder
     ): Flow<List<MediaItem>> = flow {
+        val (mediaStoreItems, folderPath) = queryMediaStoreItems(parentId, sortMode, sortOrder)
+        val knownFilePaths = mediaStoreItems.mapNotNull { it.folderPath.takeIf { p -> p.isNotEmpty() } }.toSet()
+
+        // BitmapFactory 补齐 MediaStore 中缺失的宽高
+        val cache = if (cacheDir != null) MediaDimensionsCache.load(cacheDir) else null
+        val recordsToSave = mutableMapOf<String, DimensionRecord>()
+        val filledItems = mediaStoreItems.map { item ->
+            if (item.width > 0 && item.height > 0) {
+                item
+            } else {
+                val uriStr = item.uri?.toString() ?: return@map item
+                val record = cache?.get(uriStr) ?: decodeBounds(uriStr) ?: return@map item
+                recordsToSave[uriStr] = record
+                item.copy(width = record.width, height = record.height)
+            }
+        }
+
+        if (recordsToSave.isNotEmpty() && cacheDir != null) {
+            if (cache != null) cache.putAll(recordsToSave)
+            MediaDimensionsCache.save(cacheDir, cache ?: recordsToSave)
+        }
+
+        // Phase 1: 快速发射 MediaStore 数据
+        emit(filledItems)
+        if (filledItems.isEmpty()) return@flow
+
+        // Phase 2: FileTreeWalk 补偿未索引文件
+        val rootPath = folderPath.ifEmpty { return@flow }
+        val unindexed = findUnindexedFiles(rootPath, knownFilePaths, cacheDir)
+        if (unindexed.isEmpty()) return@flow
+
+        val merged = (filledItems + unindexed).sortedWith(mediaComparator(sortMode, sortOrder))
+        emit(merged)
+    }.flowOn(Dispatchers.IO)
+
+    // ═══════════════════════════════════════════════════════════════
+    //  搜索
+    // ═══════════════════════════════════════════════════════════════
+
+    override fun searchMedia(query: String): Flow<List<MediaItem>> = flow {
+        if (query.isBlank()) {
+            emit(emptyList())
+            return@flow
+        }
+        val selection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
+                " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0" +
+                " AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?"
+        } else {
+            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
+                " AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?"
+        }
+        val selectionArgs = arrayOf(
+            MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
+            MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString(),
+            "%$query%"
+        )
+
+        val cursor = contentResolver.query(
+            unifiedUri, fileProjection, selection, selectionArgs,
+            "${MediaStore.Files.FileColumns.DATE_TAKEN} DESC"
+        )
+
+        emit(readMediaItemsFromCursor(cursor))
+    }.flowOn(Dispatchers.IO)
+
+    // ═══════════════════════════════════════════════════════════════
+    //  内部方法
+    // ═══════════════════════════════════════════════════════════════
+
+    private fun queryMediaStoreItems(
+        parentId: Long,
+        sortMode: SortMode,
+        sortOrder: SortOrder
+    ): Pair<List<MediaItem>, String> {
         val baseSelection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             "${MediaStore.Files.FileColumns.PARENT} = ?" +
                 " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
@@ -218,18 +288,18 @@ class AndroidMediaRepository(
         }
         val direction = if (sortOrder == SortOrder.DESC) "DESC" else "ASC"
 
-        // ── Phase 1: MediaStore 快路径 ──
         val cursor = contentResolver.query(
-            unifiedUri,
-            fileProjection,
-            baseSelection,
-            selectionArgs,
-            "$sortCol $direction"
+            unifiedUri, fileProjection, baseSelection, selectionArgs, "$sortCol $direction"
         )
 
-        val items = mutableListOf<MediaItem>()
-        var folderPath = ""
+        val items = readMediaItemsFromCursor(cursor)
+        val folderPath = items.firstOrNull()?.folderPath
+            ?.substringBeforeLast("/") ?: ""
+        return Pair(items, folderPath)
+    }
 
+    private fun readMediaItemsFromCursor(cursor: android.database.Cursor?): List<MediaItem> {
+        val items = mutableListOf<MediaItem>()
         cursor?.use {
             val idCol = it.getColumnIndex(MediaStore.Files.FileColumns._ID)
             val nameCol = it.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
@@ -256,10 +326,6 @@ class AndroidMediaRepository(
                 val w = if (widthCol >= 0) it.getInt(widthCol) else 0
                 val h = if (heightCol >= 0) it.getInt(heightCol) else 0
 
-                if (folderPath.isEmpty() && data.isNotEmpty()) {
-                    folderPath = data.substringBeforeLast("/")
-                }
-
                 items.add(
                     MediaItem(
                         uri = ContentUris.withAppendedId(unifiedUri, id),
@@ -277,164 +343,141 @@ class AndroidMediaRepository(
                 )
             }
         }
+        return items
+    }
 
-        // 优先发射 MediaStore 数据，保证冷启动速度
-        emit(items)
-
-        // ── Phase 2: 文件系统慢路径（FileTreeWalk 补偿 MediaStore 漏索引文件）──
-        if (folderPath.isNotEmpty() && folderPath != "/") {
-            val fileDir = File(folderPath)
-            if (fileDir.isDirectory) {
-                // 收集已有文件的绝对路径，用于去重
-                val existingPaths = items.map { it.folderPath }.filter { it.isNotEmpty() }.toHashSet()
-                val fileItems = mutableListOf<MediaItem>()
-
-                try {
-                    fileDir.walkTopDown()
-                        .onEnter { dir ->
-                            // 跳过 .nomedia 目录和系统黑名单目录
-                            dir.name != "Android" && !dir.name.startsWith(".")
-                        }
-                        .filter { file ->
-                            file.isFile &&
-                                file.extension.lowercase() in IMAGE_EXTENSIONS &&
-                                file.absolutePath !in existingPaths
-                        }
-                        .forEach { file ->
-                            // 每条文件检查协程取消，支持 ViewModel 销毁时中断扫描
-                            currentCoroutineContext().ensureActive()
-                            val ext = file.extension.lowercase()
-                            val mime = estimateMimeType(ext)
-                            fileItems.add(
-                                MediaItem(
-                                    uri = android.net.Uri.fromFile(file),
-                                    name = file.name,
-                                    mimeType = mime,
-                                    size = file.length(),
-                                    dateModified = file.lastModified(),
-                                    folderPath = file.absolutePath,
-                                    parentId = parentId,
-                                    orientation = 0,
-                                    mediaType = if (mime.startsWith("video/"))
-                                        MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
-                                    else
-                                        MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE,
-                                    width = 0,
-                                    height = 0
-                                )
-                            )
-                        }
-                } catch (_: SecurityException) {
-                    // 无权限读取时静默跳过，不阻断已有数据
+    /** BitmapFactory.inJustDecodeBounds 解码图片尺寸，不加载像素数据。 */
+    private fun decodeBounds(uriStr: String): DimensionRecord? {
+        return try {
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            if (uriStr.startsWith("content://")) {
+                contentResolver.openInputStream(Uri.parse(uriStr))?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, opts)
                 }
+            } else {
+                BitmapFactory.decodeFile(uriStr.removePrefix("file://"), opts)
+            }
+            if (opts.outWidth > 0 && opts.outHeight > 0) {
+                DimensionRecord(opts.outWidth, opts.outHeight)
+            } else null
+        } catch (_: Exception) { null }
+    }
 
-                if (fileItems.isNotEmpty()) {
-                    // 合并后重新排序，确保 UI 排序与用户选择一致
-                    val allItems = items + fileItems
-                    val sorted = when (sortMode) {
-                        SortMode.NAME -> allItems.sortedBy { it.name.lowercase() }.let {
-                            if (sortOrder == SortOrder.DESC) it.reversed() else it
-                        }
-                        SortMode.DATE -> allItems.sortedBy { it.dateModified }.let {
-                            if (sortOrder == SortOrder.DESC) it.reversed() else it
-                        }
-                        SortMode.SIZE -> allItems.sortedBy { it.size }.let {
-                            if (sortOrder == SortOrder.DESC) it.reversed() else it
-                        }
+    /** FileTreeWalk 扫描未被 MediaStore 索引的文件 */
+    private suspend fun findUnindexedFiles(
+        rootPath: String,
+        knownFilePaths: Set<String>,
+        cacheDir: File?
+    ): List<MediaItem> {
+        val root = File(rootPath)
+        if (!root.isDirectory) return emptyList()
+
+        val cache = if (cacheDir != null) MediaDimensionsCache.load(cacheDir) else null
+        val recordsToSave = if (cacheDir != null) mutableMapOf<String, DimensionRecord>() else null
+        val items = mutableListOf<MediaItem>()
+
+        try {
+            root.walkTopDown()
+                .maxDepth(4)
+                .onEnter { file ->
+                    if (file.isDirectory) {
+                        if (file.name.startsWith(".") || file.name in EXCLUDED_DIRS) return@onEnter false
+                        if (File(file, ".nomedia").exists()) return@onEnter false
                     }
-                    emit(sorted)
+                    true
                 }
-            }
-        }
-    }.flowOn(Dispatchers.IO)
+                .filter { file ->
+                    file.isFile && file.extension.lowercase() in ALL_MEDIA_EXTENSIONS
+                }
+                .forEach { file ->
+                    currentCoroutineContext().ensureActive() // 支持 ViewModel 销毁时中断扫描
+                    val absPath = file.absolutePath
+                    if (absPath in knownFilePaths) return@forEach
 
-    override fun searchMedia(query: String): Flow<List<MediaItem>> = flow {
-        if (query.isBlank()) {
-            emit(emptyList())
-            return@flow
-        }
-        val selection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
-                " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0" +
-                " AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?"
-        } else {
-            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
-                " AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?"
-        }
-        val selectionArgs = arrayOf(
-            MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
-            MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString(),
-            "%$query%"
-        )
+                    val isVideo2 = file.extension.lowercase() in VIDEO_EXTENSIONS
+                    val mime = estimateMimeType(file.extension.lowercase())
+                    val (w, h) = if (!isVideo2) {
+                        val uriStr = Uri.fromFile(file).toString()
+                        val cached = cache?.get(uriStr)
+                        if (cached != null) {
+                            Pair(cached.width, cached.height)
+                        } else {
+                            val decoded = decodeBounds(file.absolutePath)
+                            if (decoded != null) {
+                                recordsToSave?.put(uriStr, decoded)
+                                Pair(decoded.width, decoded.height)
+                            } else Pair(0, 0)
+                        }
+                    } else Pair(0, 0)
 
-        val cursor = contentResolver.query(
-            unifiedUri,
-            fileProjection,
-            selection,
-            selectionArgs,
-            "${MediaStore.Files.FileColumns.DATE_TAKEN} DESC"
-        )
-
-        val items = mutableListOf<MediaItem>()
-
-        cursor?.use {
-            val idCol = it.getColumnIndex(MediaStore.Files.FileColumns._ID)
-            val nameCol = it.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
-            val mimeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE)
-            val sizeCol = it.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
-            val dateCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATE_MODIFIED)
-            val dataCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATA)
-            val parentCol = it.getColumnIndex(MediaStore.Files.FileColumns.PARENT)
-            val orientCol = it.getColumnIndex(MediaStore.Files.FileColumns.ORIENTATION)
-            val mediaTypeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
-            val widthCol = it.getColumnIndex(MediaStore.MediaColumns.WIDTH)
-            val heightCol = it.getColumnIndex(MediaStore.MediaColumns.HEIGHT)
-
-            while (it.moveToNext()) {
-                val id = if (idCol >= 0) it.getLong(idCol) else continue
-                val name = if (nameCol >= 0) it.getString(nameCol) ?: "" else ""
-                val mime = if (mimeCol >= 0) it.getString(mimeCol) ?: "" else ""
-                val size = if (sizeCol >= 0) it.getLong(sizeCol) else 0L
-                val date = if (dateCol >= 0) it.getLong(dateCol) else 0L
-                val data = if (dataCol >= 0) it.getString(dataCol) ?: "" else ""
-                val parent = if (parentCol >= 0) it.getLong(parentCol) else 0L
-                val orientation = if (orientCol >= 0) it.getInt(orientCol) else 0
-                val mediaType = if (mediaTypeCol >= 0) it.getInt(mediaTypeCol) else 0
-                val w = if (widthCol >= 0) it.getInt(widthCol) else 0
-                val h = if (heightCol >= 0) it.getInt(heightCol) else 0
-
-                items.add(
-                    MediaItem(
-                        uri = ContentUris.withAppendedId(unifiedUri, id),
-                        name = name,
-                        mimeType = mime,
-                        size = size,
-                        dateModified = date,
-                        folderPath = data,
-                        parentId = parent,
-                        orientation = orientation,
-                        mediaType = mediaType,
-                        width = w,
-                        height = h
+                    items.add(
+                        MediaItem(
+                            uri = Uri.fromFile(file),
+                            name = file.name,
+                            mimeType = mime,
+                            size = file.length(),
+                            dateModified = file.lastModified() / 1000,
+                            folderPath = absPath,
+                            parentId = 0,
+                            orientation = 0,
+                            mediaType = if (isVideo2) MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                                else MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE,
+                            width = w,
+                            height = h
+                        )
                     )
-                )
-            }
+                }
+        } catch (_: SecurityException) {
+            // 无权限读取时静默跳过
         }
 
-        emit(items)
-    }.flowOn(Dispatchers.IO)
+        if (recordsToSave != null && recordsToSave.isNotEmpty() && cache != null) {
+            cache.putAll(recordsToSave)
+            MediaDimensionsCache.save(cacheDir!!, cache)
+        }
+
+        return items
+    }
+
+    private fun estimateMimeType(ext: String): String = when (ext) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "webp" -> "image/webp"
+        "gif" -> "image/gif"
+        "bmp" -> "image/bmp"
+        "heic", "heif" -> "image/heic"
+        "avif" -> "image/avif"
+        "tiff", "tif" -> "image/tiff"
+        "mp4" -> "video/mp4"
+        "mkv" -> "video/x-matroska"
+        "webm" -> "video/webm"
+        "avi" -> "video/x-msvideo"
+        "mov" -> "video/quicktime"
+        else -> "application/octet-stream"
+    }
+
+    private fun mediaComparator(sortMode: SortMode, sortOrder: SortOrder): Comparator<MediaItem> {
+        val cmp: Comparator<MediaItem> = when (sortMode) {
+            SortMode.NAME -> compareBy { it.name.lowercase() }
+            SortMode.DATE -> compareByDescending { it.dateModified }
+            SortMode.SIZE -> compareByDescending { it.size }
+        }
+        return if (sortOrder == SortOrder.ASC) cmp.reversed() else cmp
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  .nomedia 检测
+    // ═══════════════════════════════════════════════════════════════
 
     private fun getHiddenFolderParentIds(): Set<Long> {
         cachedHiddenParents?.let { return it }
 
-        // 1. 文件缓存（跨进程持久化）
         val fileCached = cacheDir?.let { FolderCache.loadHiddenParents(it) }
         if (fileCached != null && fileCached.isNotEmpty()) {
             cachedHiddenParents = fileCached
             return fileCached
         }
 
-        // 2. 首次启动：扫描文件系统
         val hiddenParents = mutableSetOf<Long>()
         val storageDirs = getStorageRoots()
         for (root in storageDirs) {
@@ -515,4 +558,8 @@ class AndroidMediaRepository(
         var mediaCount: Int,
         var maxDate: Long
     )
+
+    companion object {
+        private val EXCLUDED_DIRS = setOf("Android", "cache", "tmp", "temp", "data")
+    }
 }

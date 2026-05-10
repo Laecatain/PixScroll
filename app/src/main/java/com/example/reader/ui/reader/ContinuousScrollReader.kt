@@ -48,17 +48,18 @@ private const val LONG_JUMP_OFFSET = 3
  *
  * ## 核心策略
  *
- * ### 状态锁 (State Decoupling)
- * [MutableInteractionSource.collectIsDraggedAsState] + [LazyListState.isScrollInProgress]
- * 双条件控制：(!isDragged && !isScrolling) 时才将 firstVisibleItemIndex → sliderValue。
+ * ### 三重状态锁 (Triple State Lock)
+ * [isDragged]（Slider 拖拽）+ [isScrolling]（滚动动画）+ [isUserInteracting]（跳转中）
+ * 三条件控制任一激活时不反写 sliderValue，彻底切断双向绑定冲突。
  *
  * ### 混合跳转 (Hybrid Scroll)
  * |target - current| > 10: scrollToItem(target±3) 瞬移 → animateScrollToItem(target) 补间。
  * aspectRatio 占位保证 scrollToItem 瞬间完成。
  *
- * ### 初始定位
- * 冷启动: [rememberLazyListState] 的 initialFirstVisibleItemIndex 直接定位，首帧不白屏。
- * 热启动: [LaunchedEffect] + [snapshotFlow] 监听 totalItemsCount，数据就绪后执行跳转。
+ * ### 初始定位居中
+ * 短图片（< viewport）: scrollOffset = -(viewport - itemHeight)/2，视觉居中。
+ * 长图片（≥ viewport）: scrollOffset = 0，顶对齐。
+ * 冷启动: initialFirstVisibleItemScrollOffset；热启动: animateScrollToItem scrollOffset。
  */
 @Composable
 fun ContinuousScrollReader(
@@ -81,6 +82,7 @@ fun ContinuousScrollReader(
     // ── 滑块状态 ──
     var sliderValue by remember { mutableFloatStateOf(0f) }
     var visibleIndex by remember { mutableStateOf(0) }
+    var isUserInteracting by remember { mutableStateOf(false) }
 
     // 状态锁: MutableInteractionSource 感知 Slider 拖拽
     val sliderInteractionSource = remember { MutableInteractionSource() }
@@ -116,9 +118,9 @@ fun ContinuousScrollReader(
             }
     }
 
-    // 状态锁: 拖拽中或动画中不反写 sliderValue
-    LaunchedEffect(visibleIndex, isDragged, isScrolling) {
-        if (!isDragged && !isScrolling) {
+    // 三重状态锁：拖拽中 / 动画中 / 用户交互中不反写 sliderValue
+    LaunchedEffect(visibleIndex, isDragged, isScrolling, isUserInteracting) {
+        if (!isDragged && !isScrolling && !isUserInteracting) {
             sliderValue = visibleIndex.toFloat()
         }
     }
@@ -269,18 +271,23 @@ fun ContinuousScrollReader(
                         onValueChangeFinished = {
                             val target = clampSliderTarget(sliderValue, totalCount)
                             sliderValue = target.toFloat()
+                            isUserInteracting = true
                             scope.launch {
-                                val cur = visibleIndex
-                                if (abs(target - cur) > LONG_JUMP_THRESHOLD) {
-                                    val mid = if (target > cur)
-                                        (target - LONG_JUMP_OFFSET).coerceAtLeast(0)
-                                    else
-                                        (target + LONG_JUMP_OFFSET).coerceAtMost(totalCount - 1)
-                                    listState.scrollToItem(mid)
+                                try {
+                                    val cur = visibleIndex
+                                    if (abs(target - cur) > LONG_JUMP_THRESHOLD) {
+                                        val mid = if (target > cur)
+                                            (target - LONG_JUMP_OFFSET).coerceAtLeast(0)
+                                        else
+                                            (target + LONG_JUMP_OFFSET).coerceAtMost(totalCount - 1)
+                                        listState.scrollToItem(mid)
+                                    }
+                                    val vp = listState.layoutInfo.viewportSize.height.toFloat()
+                                    val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx)
+                                    listState.animateScrollToItem(target, scrollOffset = offset)
+                                } finally {
+                                    isUserInteracting = false
                                 }
-                                val vp = listState.layoutInfo.viewportSize.height.toFloat()
-                                val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx)
-                                listState.animateScrollToItem(target, scrollOffset = offset)
                             }
                         },
                         valueRange = 0f..(totalCount - 1).toFloat().coerceAtLeast(0f),
