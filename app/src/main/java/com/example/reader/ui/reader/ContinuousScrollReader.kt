@@ -78,6 +78,7 @@ fun ContinuousScrollReader(
     var offsetY by remember { mutableFloatStateOf(0f) }
     val isZoomed = scale > 1f
     val totalCount = mediaItems.size
+    val safeInitial = initialIndex.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
     val scope = rememberCoroutineScope()
 
     // ── 滑块状态 ──
@@ -90,7 +91,6 @@ fun ContinuousScrollReader(
     val isDragged by sliderInteractionSource.collectIsDraggedAsState()
 
     // 冷启动: 计算居中偏移，用 initialFirstVisibleItemScrollOffset 使目标图片垂直居中
-    val safeInitial = initialIndex.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
     val configuration = LocalConfiguration.current
     val screenHeightDp = configuration.screenHeightDp.dp
     val density = LocalDensity.current
@@ -133,8 +133,9 @@ fun ContinuousScrollReader(
         }
     }
 
-    // 热启动: 等待数据就绪后执行一次跳转，然后终止流（防止退出时重复触发）
-    LaunchedEffect(initialIndex) {
+    // 热启动/数据刷新跳转: 只在 mediaItems 发生变化（如初次加载）时触发跳转，
+    // 忽略后续仅由 currentIndex 变化引发的 recomposition，彻底杜绝滚动过程中的互相劫持（卡顿/抽搐）
+    LaunchedEffect(mediaItems) {
         // first{} 在条件满足后立即终止收集，避免 composable dispose 时再次触发滚动
         val count = snapshotFlow { listState.layoutInfo.totalItemsCount }
             .first { it > 0 }
