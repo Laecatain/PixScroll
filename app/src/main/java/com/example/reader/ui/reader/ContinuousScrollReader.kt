@@ -81,10 +81,15 @@ fun ContinuousScrollReader(
     val safeInitial = initialIndex.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
     val scope = rememberCoroutineScope()
 
+    // 数据集身份 Key：仅当 mediaItems 引用变化（切换文件夹/排序）时重置本地状态，
+    // 彻底解耦 ViewModel 的 currentIndex 回写，杜绝异步延迟导致的 visibleIndex 抽搐
+    val dataSetKey = remember(mediaItems) { Any() }
+
     // ── 滑块状态 ──
-    var sliderValue by remember(safeInitial) { mutableFloatStateOf(safeInitial.toFloat()) }
-    var visibleIndex by remember(safeInitial) { mutableStateOf(safeInitial) }
+    var sliderValue by remember(dataSetKey) { mutableFloatStateOf(safeInitial.toFloat()) }
+    var visibleIndex by remember(dataSetKey) { mutableStateOf(safeInitial) }
     var isUserInteracting by remember { mutableStateOf(false) }
+    var isInitialScrollDone by remember(dataSetKey) { mutableStateOf(false) }
 
     // 状态锁: MutableInteractionSource 感知 Slider 拖拽
     val sliderInteractionSource = remember { MutableInteractionSource() }
@@ -133,17 +138,15 @@ fun ContinuousScrollReader(
         }
     }
 
-    // 热启动/数据刷新跳转: 只在 mediaItems 发生变化（如初次加载）时触发跳转，
-    // 忽略后续仅由 currentIndex 变化引发的 recomposition，彻底杜绝滚动过程中的互相劫持（卡顿/抽搐）
+    // 热启动/数据刷新跳转: 只在 mediaItems 发生变化且尚未执行过初始滚动时触发，
+    // isInitialScrollDone 标记位防止 mediaItems 微小波动导致反复跳转
     LaunchedEffect(mediaItems) {
-        // first{} 在条件满足后立即终止收集，避免 composable dispose 时再次触发滚动
-        val count = snapshotFlow { listState.layoutInfo.totalItemsCount }
-            .first { it > 0 }
-        val target = initialIndex.coerceIn(0, count - 1)
-        // 状态锁：如果当前正在看的已经是目标，则跳过（打破 onIndexChange 造成的反馈环）
-        if (visibleIndex == target) return@LaunchedEffect
-        Log.d(TAG, "热启动跳转: target=$target total=$count")
+        if (mediaItems.isEmpty() || isInitialScrollDone) return@LaunchedEffect
         try {
+            val count = snapshotFlow { listState.layoutInfo.totalItemsCount }
+                .first { it > 0 }
+            val target = initialIndex.coerceIn(0, count - 1)
+            Log.d(TAG, "热启动跳转: target=$target total=$count")
             val vp = listState.layoutInfo.viewportSize.height.toFloat()
             val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx, screenHeightPx)
             if (abs(target - visibleIndex) > LONG_JUMP_THRESHOLD) {
@@ -154,10 +157,11 @@ fun ContinuousScrollReader(
                 listState.scrollToItem(midTarget)
             }
             listState.animateScrollToItem(target, scrollOffset = offset)
+            isInitialScrollDone = true
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (_: Exception) {
-            // composable 正在 dispose 时滚动可能抛异常，安全忽略
+        } catch (e: Exception) {
+            Log.e(TAG, "Initial scroll failed", e)
         }
     }
 
@@ -282,8 +286,8 @@ fun ContinuousScrollReader(
                         onValueChangeFinished = {
                             val target = clampSliderTarget(sliderValue, totalCount)
                             sliderValue = target.toFloat()
-                            isUserInteracting = true
                             scope.launch {
+                                isUserInteracting = true
                                 try {
                                     val cur = visibleIndex
                                     if (abs(target - cur) > LONG_JUMP_THRESHOLD) {
@@ -296,6 +300,10 @@ fun ContinuousScrollReader(
                                     val vp = listState.layoutInfo.viewportSize.height.toFloat()
                                     val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx, screenHeightPx)
                                     listState.animateScrollToItem(target, scrollOffset = offset)
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    Log.d(TAG, "Slider scroll animation interrupted", e)
                                 } finally {
                                     isUserInteracting = false
                                 }
