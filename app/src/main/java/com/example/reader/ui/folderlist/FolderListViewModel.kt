@@ -14,12 +14,14 @@ import com.example.reader.data.repository.MediaRepository
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
 import com.example.reader.util.FolderCache
-import com.example.reader.util.PreferenceKeys
-import com.example.reader.util.dataStore
+import com.example.reader.util.saveSortMode
+import com.example.reader.util.saveSortOrder
+import com.example.reader.util.settingsFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onEach
@@ -56,35 +58,62 @@ class FolderListViewModel(
         }
         state = _state.asStateFlow()
 
-        // 异步读取排序偏好
         if (application != null) {
+            // ① 读取初始排序偏好并首次加载
             viewModelScope.launch {
-                val prefs = application.dataStore.data.first()
+                val initial = application.settingsFlow().first()
                 sortMode = try {
-                    SortMode.valueOf(prefs[PreferenceKeys.SORT_MODE] ?: "DATE")
+                    SortMode.valueOf(initial.sortMode)
                 } catch (_: IllegalArgumentException) { SortMode.DATE }
                 sortOrder = try {
-                    SortOrder.valueOf(prefs[PreferenceKeys.SORT_ORDER] ?: "DESC")
+                    SortOrder.valueOf(initial.sortOrder)
                 } catch (_: IllegalArgumentException) { SortOrder.DESC }
+                loadFolders()
             }
+            // ② 响应外部排序变更（DataStore 被其他界面写入时自动同步）
+            viewModelScope.launch {
+                application.settingsFlow().drop(1).collect { settings ->
+                    val newMode = try {
+                        SortMode.valueOf(settings.sortMode)
+                    } catch (_: IllegalArgumentException) { SortMode.DATE }
+                    val newOrder = try {
+                        SortOrder.valueOf(settings.sortOrder)
+                    } catch (_: IllegalArgumentException) { SortOrder.DESC }
+                    if (newMode != sortMode || newOrder != sortOrder) {
+                        sortMode = newMode
+                        sortOrder = newOrder
+                        loadFolders()
+                    }
+                }
+            }
+        } else {
+            // 无 Application（测试）: 默认排序首次加载
+            loadFolders()
         }
-
-        // 刷新数据（首次跳 Loading 以复用缓存显示）
-        loadFolders()
     }
 
     fun updateSortMode(mode: SortMode) {
         sortMode = mode
+        application?.let { app ->
+            viewModelScope.launch { app.saveSortMode(mode.name) }
+        }
         loadFolders()
     }
 
     fun updateSortOrder(order: SortOrder) {
         sortOrder = order
+        application?.let { app ->
+            viewModelScope.launch { app.saveSortOrder(order.name) }
+        }
         loadFolders()
     }
 
     fun toggleSortOrder() {
-        sortOrder = if (sortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
+        val newOrder = if (sortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
+        sortOrder = newOrder
+        application?.let { app ->
+            viewModelScope.launch { app.saveSortOrder(newOrder.name) }
+        }
         loadFolders()
     }
 
