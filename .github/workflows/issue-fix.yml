@@ -1,0 +1,77 @@
+name: Claude Auto-Fix from Issue
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  fix:
+    if: contains(github.event.issue.labels.*.name, 'auto-fix')
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        shell: pwsh
+        run: |
+          git config user.name "Claude Auto-Fix"
+          git config user.email "claude@local-runner"
+
+      - name: Create fix branch
+        shell: pwsh
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git checkout -b auto-fix/issue-$env:ISSUE_NUMBER
+
+      - name: Claude analyze and implement fix
+        shell: pwsh
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $body = @"
+          You are working in the repository at E:\playground.
+
+          GitHub Issue #$env:ISSUE_NUMBER
+          Title: $env:ISSUE_TITLE
+          Body:
+
+          $env:ISSUE_BODY
+
+          Your task:
+          1. Analyze the codebase to understand the issue
+          2. Implement the fix by editing relevant files
+          3. Stage the changes with git add
+          4. Commit with message: "fix: $env:ISSUE_TITLE"
+          5. Push to origin auto-fix/issue-$env:ISSUE_NUMBER
+
+          Use `git add` and `git commit` and `git push` directly.
+          "@
+
+          $body | claude 2>&1
+
+      - name: Create PR if changes pushed
+        shell: pwsh
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $branch = "auto-fix/issue-$env:ISSUE_NUMBER"
+          $has_commits = git rev-list --count origin/$branch...$branch 2>$null
+          if ($LASTEXITCODE -eq 0 -and $has_commits -gt 0) {
+            gh pr create `
+              --base TabRow-HorizontalPager `
+              --head $branch `
+              --title "fix: $env:ISSUE_TITLE" `
+              --body "Auto-fix for issue #$env:ISSUE_NUMBER" `
+              --label auto-fix
+          } else {
+            gh issue comment $env:ISSUE_NUMBER `
+              --body "Claude could not produce an automatic fix. Check runner logs for details."
+          }
