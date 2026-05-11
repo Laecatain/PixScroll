@@ -2,7 +2,7 @@ name: Claude Auto-Fix from Issue
 
 on:
   issues:
-    types: [opened]
+    types: [opened, labeled]
 
 jobs:
   check_labels:
