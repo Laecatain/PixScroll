@@ -242,6 +242,16 @@ gh api repos/Laecatain/reader-app/actions/runners --jq '.runners[] | "\(.name): 
 
 ### issue-fix.yml
 
+三个 Agent 分工协作：
+
+```
+Issue ──► [1/3 Planner] ──► plan.md ──► [2/3 Implementer] ──► staged diff ──► [3/3 Reviewer]
+                                                                                        │
+                                                                                   PASS/FAIL
+                                                                                        │
+                                                                                   commit + PR
+```
+
 ```yaml
 name: Claude Auto-Fix from Issue
 
@@ -250,72 +260,97 @@ on:
     types: [opened]
 
 jobs:
-  fix:
+  plan:
     if: contains(github.event.issue.labels.*.name, 'auto-fix')
     runs-on: self-hosted
+    outputs:
+      plan_exit: ${{ steps.plan.outputs.exit_code }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Configure git
         shell: pwsh
         run: |
           git config user.name "Claude Auto-Fix"
           git config user.email "claude@local-runner"
-
       - name: Create fix branch
         shell: pwsh
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           git checkout -b auto-fix/issue-$env:ISSUE_NUMBER
-
-      - name: Claude analyze and implement fix
+      - name: "[Agent 1/3] Planner — analyze issue + produce plan"
+        id: plan
         shell: pwsh
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          GH_TOKEN: ${{ github.token }}
         run: |
-          $body = @"
-          You are working in the repository cloned to the current directory.
-
-          GitHub Issue #$env:ISSUE_NUMBER
-          Title: $env:ISSUE_TITLE
-          Body:
-
-          $env:ISSUE_BODY
-
-          Your task:
-          1. Analyze the codebase to understand the issue
-          2. Implement the fix by editing relevant files
-          3. Stage changes with git add
-          4. Commit with message: "fix: $env:ISSUE_TITLE"
-          5. Push to origin auto-fix/issue-$env:ISSUE_NUMBER
+          $prompt = @"
+          You are a software architect. Your job is ONLY to produce a plan.
+          Read the codebase and write a detailed implementation plan
+          to D:\a\_work\plan.md. Do NOT edit any source code.
           "@
+          $prompt | claude 2>&1
 
-          $body | claude 2>&1
+  implement:
+    needs: plan
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Checkout fix branch
+        shell: pwsh
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git fetch origin auto-fix/issue-$env:ISSUE_NUMBER
+          git checkout auto-fix/issue-$env:ISSUE_NUMBER
+      - name: "[Agent 2/3] Implementer — execute the plan"
+        shell: pwsh
+        run: |
+          $plan = Get-Content "D:\a\_work\plan.md" -Raw
+          $prompt = @"
+          Follow the plan below. Make changes and stage with git add.
+          Plan: $plan
+          "@
+          $prompt | claude 2>&1
+      - name: "[Agent 3/3] Reviewer — verify staged changes"
+        id: review
+        shell: pwsh
+        run: |
+          $diff = git diff --cached
+          $result = "Review this diff: $diff" | claude 2>&1
+          if ($result -match "PASS") { echo "exit_code=0" >> $env:GITHUB_OUTPUT }
 
-      - name: Create PR if changes pushed
+  commit_and_pr:
+    needs: implement
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Commit and push
+        shell: pwsh
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git commit -m "fix: $env:ISSUE_TITLE"
+          git push origin auto-fix/issue-$env:ISSUE_NUMBER
+      - name: Create PR
         shell: pwsh
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          $branch = "auto-fix/issue-$env:ISSUE_NUMBER"
-          $has_commits = git rev-list --count origin/$branch...$branch 2>$null
-          if ($LASTEXITCODE -eq 0 -and $has_commits -gt 0) {
-            gh pr create `
-              --base TabRow-HorizontalPager `
-              --head $branch `
-              --title "fix: $env:ISSUE_TITLE" `
-              --body "Auto-fix for issue #$env:ISSUE_NUMBER" `
-              --label auto-fix
-          } else {
-            gh issue comment $env:ISSUE_NUMBER `
-              --body "Claude could not produce an automatic fix."
-          }
+          gh pr create --base TabRow-HorizontalPager `
+            --head auto-fix/issue-$env:ISSUE_NUMBER `
+            --title "fix: $env:ISSUE_TITLE" `
+            --body "Auto-fix for issue #$env:ISSUE_NUMBER" `
+            --label auto-fix
 ```

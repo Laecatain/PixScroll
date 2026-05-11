@@ -5,9 +5,11 @@ on:
     types: [opened]
 
 jobs:
-  fix:
+  plan:
     if: contains(github.event.issue.labels.*.name, 'auto-fix')
     runs-on: self-hosted
+    outputs:
+      plan_exit: ${{ steps.plan.outputs.exit_code }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,16 +28,16 @@ jobs:
         run: |
           git checkout -b auto-fix/issue-$env:ISSUE_NUMBER
 
-      - name: Claude analyze and implement fix
+      - name: "[Agent 1/3] Planner — analyze issue + produce plan"
+        id: plan
         shell: pwsh
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          GH_TOKEN: ${{ github.token }}
         run: |
-          $body = @"
-          You are working in the repository at E:\playground.
+          $prompt = @"
+          You are a software architect. Your job is ONLY to produce a plan.
 
           GitHub Issue #$env:ISSUE_NUMBER
           Title: $env:ISSUE_TITLE
@@ -43,35 +45,141 @@ jobs:
 
           $env:ISSUE_BODY
 
-          Your task:
-          1. Analyze the codebase to understand the issue
-          2. Implement the fix by editing relevant files
-          3. Stage the changes with git add
-          4. Commit with message: "fix: $env:ISSUE_TITLE"
-          5. Push to origin auto-fix/issue-$env:ISSUE_NUMBER
-
-          Use `git add` and `git commit` and `git push` directly.
+          Instructions:
+          1. Read the codebase to understand the relevant code
+          2. Write a detailed implementation plan to D:\a\_work\plan.md
+          3. The plan must list: which files to change, what to change in each, and in what order
+          4. Do NOT edit any source code — only write the plan file
           "@
 
-          $body | claude 2>&1
+          $prompt | claude 2>&1
+          if (Test-Path "D:\a\_work\plan.md") {
+            echo "exit_code=0" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "exit_code=1" >> $env:GITHUB_OUTPUT
+          }
 
-      - name: Create PR if changes pushed
+  implement:
+    needs: plan
+    if: needs.plan.outputs.plan_exit == '0'
+    runs-on: self-hosted
+    outputs:
+      review_exit: ${{ steps.review.outputs.exit_code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        shell: pwsh
+        run: |
+          git config user.name "Claude Auto-Fix"
+          git config user.email "claude@local-runner"
+
+      - name: Checkout fix branch
+        shell: pwsh
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git fetch origin auto-fix/issue-$env:ISSUE_NUMBER 2>$null
+          git checkout auto-fix/issue-$env:ISSUE_NUMBER
+
+      - name: "[Agent 2/3] Implementer — execute the plan"
+        shell: pwsh
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          $plan = Get-Content "D:\a\_work\plan.md" -Raw
+          $prompt = @"
+          You are an implementer. Follow the plan below precisely.
+
+          Plan:
+          $plan
+
+          Instructions:
+          1. Read each file listed in the plan
+          2. Make the changes described in the plan
+          3. Stage all changes with `git add`
+          4. Do NOT commit yet — only stage
+          "@
+
+          $prompt | claude 2>&1
+
+      - name: "[Agent 3/3] Reviewer — verify staged changes"
+        id: review
+        shell: pwsh
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          $diff = git diff --cached 2>&1
+          $prompt = @"
+          You are a code reviewer. Review the following staged diff.
+
+          Issue: $env:ISSUE_TITLE
+
+          Diff:
+          $diff
+
+          Instructions:
+          1. Check for bugs, regressions, and correctness
+          2. Ensure the diff actually addresses the issue
+          3. If the changes look correct, write exactly: PASS
+          4. If there are issues, write exactly: FAIL followed by the reason
+          "@
+
+          $result = $prompt | claude 2>&1
+          Set-Content -Path "D:\a\_work\review_result.txt" -Value $result
+          if ($result -match "PASS") {
+            echo "exit_code=0" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "exit_code=1" >> $env:GITHUB_OUTPUT
+          }
+
+  commit_and_pr:
+    needs: implement
+    if: needs.implement.outputs.review_exit == '0'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout fix branch
+        shell: pwsh
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git fetch origin auto-fix/issue-$env:ISSUE_NUMBER 2>$null
+          git checkout auto-fix/issue-$env:ISSUE_NUMBER
+
+      - name: Commit and push
+        shell: pwsh
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git commit -m "fix: $env:ISSUE_TITLE"
+          git push origin auto-fix/issue-$env:ISSUE_NUMBER 2>&1
+
+      - name: Create PR
         shell: pwsh
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          $branch = "auto-fix/issue-$env:ISSUE_NUMBER"
-          $has_commits = git rev-list --count origin/$branch...$branch 2>$null
-          if ($LASTEXITCODE -eq 0 -and $has_commits -gt 0) {
-            gh pr create `
-              --base TabRow-HorizontalPager `
-              --head $branch `
-              --title "fix: $env:ISSUE_TITLE" `
-              --body "Auto-fix for issue #$env:ISSUE_NUMBER" `
-              --label auto-fix
-          } else {
-            gh issue comment $env:ISSUE_NUMBER `
-              --body "Claude could not produce an automatic fix. Check runner logs for details."
-          }
+          gh pr create `
+            --base TabRow-HorizontalPager `
+            --head auto-fix/issue-$env:ISSUE_NUMBER `
+            --title "fix: $env:ISSUE_TITLE" `
+            --body "Auto-fix for issue #$env:ISSUE_NUMBER
+
+        This PR was automatically generated:
+        1. **Planner** — analyzed the issue and produced a plan
+        2. **Implementer** — executed the plan
+        3. **Reviewer** — verified the changes
+
+        Closes #$env:ISSUE_NUMBER" `
+            --label auto-fix
