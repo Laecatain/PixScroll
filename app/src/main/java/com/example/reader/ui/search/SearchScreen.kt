@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.reader.data.model.MediaItem
+import com.example.reader.ui.common.AsyncGridImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -158,8 +159,8 @@ private fun SearchResultCell(item: MediaItem, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        AsyncImage(
-            model = item.uri,
+        AsyncGridImage(
+            uri = item.uri,
             contentDescription = item.name,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop

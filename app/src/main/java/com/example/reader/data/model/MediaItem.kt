@@ -1,7 +1,9 @@
 package com.example.reader.data.model
 
 import android.net.Uri
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class MediaItem(
     val uri: Uri?,
     val name: String,

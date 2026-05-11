@@ -1,7 +1,5 @@
 package com.example.reader.ui.folderlist
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -29,7 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -38,9 +35,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.example.reader.data.model.MediaFolder
+import com.example.reader.ui.common.AsyncGridImage
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
 import com.example.reader.ui.common.FastScroller
@@ -144,8 +140,9 @@ fun FolderListScreen(
                 }
             }
             is FolderUiState.Success -> {
-                val imageFolders = s.folders.filter { it.hasImages }
-                val videoFolders = s.folders.filter { it.hasVideos }
+                // remember(s.folders) 避免每次重组重新 .filter() 创建新 list 引用
+                val imageFolders = remember(s.folders) { s.folders.filter { it.hasImages } }
+                val videoFolders = remember(s.folders) { s.folders.filter { it.hasVideos } }
                 val tabs = listOf("图片", "视频")
                 val pagerState = rememberPagerState(pageCount = { tabs.size })
                 val pagerScope = rememberCoroutineScope()
@@ -210,44 +207,40 @@ fun FolderListScreen(
 
 @Composable
 private fun FolderCard(folder: MediaFolder, onClick: () -> Unit) {
-    val context = LocalContext.current
-    Card(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(0.85f)
-            .clickable(onClick = onClick),
+            .aspectRatio(0.85f),
+        onClick = onClick,
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        color = MaterialTheme.colorScheme.surfaceVariant
     ) {
-        Box(modifier = Modifier.weight(1f)) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(folder.coverImageUri)
-                    .size(300)
-                    .build(),
-                contentDescription = folder.folderName,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
-                contentScale = ContentScale.Crop
-            )
-        }
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
-        ) {
-            Text(
-                text = folder.folderName,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "${folder.mediaCount} 个媒体",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp
-            )
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.weight(1f)) {
+                AsyncGridImage(
+                    uri = folder.coverImageUri,
+                    contentDescription = folder.folderName,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            Column(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = folder.folderName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${folder.mediaCount} 个媒体",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
+            }
         }
     }
 }

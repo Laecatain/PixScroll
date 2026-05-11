@@ -55,7 +55,6 @@ class ReaderApp : Application(), ImageLoaderFactory {
                     .build()
             }
             .components { add(VideoFrameDecoder.Factory()) }
-            .allowHardware(true)
             .crossfade(true)
             .build()
     }

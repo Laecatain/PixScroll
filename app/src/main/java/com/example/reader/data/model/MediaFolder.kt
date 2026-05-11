@@ -1,7 +1,9 @@
 package com.example.reader.data.model
 
 import android.net.Uri
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class MediaFolder(
     val id: Long,
     val folderName: String,

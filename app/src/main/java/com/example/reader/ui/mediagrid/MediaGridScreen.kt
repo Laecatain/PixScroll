@@ -28,10 +28,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.example.reader.data.model.MediaItem
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
+import com.example.reader.ui.common.AsyncGridImage
 import com.example.reader.ui.common.FastScroller
 import com.example.reader.ui.reader.ReaderViewModel
 import com.example.reader.util.PreferenceKeys
@@ -179,7 +179,6 @@ fun MediaGridScreen(
 
 @Composable
 private fun MediaGridCell(item: MediaItem, onClick: () -> Unit) {
-    val context = LocalContext.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -188,11 +187,8 @@ private fun MediaGridCell(item: MediaItem, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(item.uri)
-                .size(300)
-                .build(),
+        AsyncGridImage(
+            uri = item.uri,
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop
