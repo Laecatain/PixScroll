@@ -2,8 +2,8 @@ package com.example.reader.util
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.media.ThumbnailUtils
-import android.provider.MediaStore
+import android.media.MediaMetadataRetriever
+import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -17,6 +17,10 @@ import java.security.MessageDigest
  * 2. 用 (path + lastModified + size) 的 MD5 作为唯一缓存键
  * 3. 全部 IO 均在 thumbDispatcher（limitedParallelism=2）上执行，
  *    避免与 Coil 读取 L2 缓存的线程竞争
+ *
+ * 抽帧引擎：
+ * - API 27+: MediaMetadataRetriever.getScaledFrameAtTime — native 层缩放
+ * - API 26:  getFrameAtTime + 手动 scaleToMaxDimension（回退）
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ThumbnailManager(private val context: Context) {
@@ -77,20 +81,70 @@ class ThumbnailManager(private val context: Context) {
 
     // ── 内部方法 ──
 
-    @Suppress("DEPRECATION")
+    /**
+     * 用 MediaMetadataRetriever 抽取视频帧并保存为缩略图。
+     *
+     * API 27+ 走 getScaledFrameAtTime（native 层缩放，避免分配全尺寸 Bitmap）；
+     * API 26  走 getFrameAtTime + 手动缩放。
+     */
     private fun generateThumbnailSync(videoPath: String, dateModified: Long, size: Long): File? {
+        val retriever = MediaMetadataRetriever()
         return try {
-            val bitmap = ThumbnailUtils.createVideoThumbnail(
-                videoPath, MediaStore.Video.Thumbnails.MINI_KIND
-            )
-            val bmp = bitmap ?: return null
+            retriever.setDataSource(videoPath)
+            val bitmap = extractFrameScaled(retriever) ?: return null
             val file = getThumbFile(videoPath, dateModified, size)
-            save(bmp, file)
-            bmp.recycle()
+            file.outputStream().use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, THUMB_QUALITY, out)
+            }
+            bitmap.recycle()
             file
         } catch (_: Exception) {
             null
+        } finally {
+            retriever.release()
         }
+    }
+
+    /**
+     * 在 API 27+ 上用 getScaledFrameAtTime 以 native 层缩放抽取帧，
+     * 避免分配全分辨率 Bitmap。自动维持原始宽高比。
+     *
+     * API 26 回退到 getFrameAtTime（全分辨率）+ 手动缩放。
+     */
+    private fun extractFrameScaled(retriever: MediaMetadataRetriever): Bitmap? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            // 查询原始尺寸以计算等比例目标尺寸
+            val origWidth = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH
+            )?.toIntOrNull() ?: 0
+            val origHeight = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT
+            )?.toIntOrNull() ?: 0
+            val (targetW, targetH) = computeTargetSize(origWidth, origHeight, THUMB_MAX_DIMENSION)
+            retriever.getScaledFrameAtTime(
+                1_000_000L,                                          // 1s，避开黑屏片头
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,           // 最近关键帧，O(1)
+                targetW, targetH
+            )
+        } else {
+            val full = retriever.getFrameAtTime(
+                1_000_000L,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+            )
+            full?.let { scaleToMaxDimension(it, THUMB_MAX_DIMENSION) }
+        }
+    }
+
+    /** 计算保持宽高比的缩放目标尺寸，最长边不超过 maxDimension。 */
+    private fun computeTargetSize(origW: Int, origH: Int, maxDimension: Int): Pair<Int, Int> {
+        if (origW <= 0 || origH <= 0) return Pair(maxDimension, maxDimension)
+        val longestEdge = maxOf(origW, origH)
+        if (longestEdge <= maxDimension) return Pair(origW, origH)
+        val ratio = maxDimension.toFloat() / longestEdge
+        return Pair(
+            (origW * ratio).toInt().coerceAtLeast(1),
+            (origH * ratio).toInt().coerceAtLeast(1)
+        )
     }
 
     private fun hashKey(input: String): String {

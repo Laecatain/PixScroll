@@ -132,7 +132,7 @@ fun ContinuousScrollReader(
                 val idx = raw.coerceIn(0, (currentTotalCount - 1).coerceAtLeast(0))
                 visibleIndex = idx
                 // 交互锁保护：拖拽中/跳转动画中不向 ViewModel 写入
-                if (!isDragged && !isUserInteracting) {
+                if (!isDragged && !isScrolling && !isUserInteracting) {
                     currentOnIndexChange(idx)
                 }
             }
@@ -145,10 +145,11 @@ fun ContinuousScrollReader(
         }
     }
 
-    // 热启动/数据刷新跳转: 只在 mediaItems 发生变化且当前位置与目标不一致时触发。
-    // parentId 稳定的 dataSetKey 确保 Phase 2 数据合并时 visibleIndex 不被重置，
-    // visibleIndex == target 守卫防止非必要的重复滚动。
-    LaunchedEffect(mediaItems) {
+    // 热启动/数据刷新跳转: 只在 initialIndex 变化（如 Phase 2 URI 调和后索引修正）时触发，
+    // 而非 mediaItems 每次引用变化（Phase 2 缩略图分块更新）都重启。
+    // 以 initialIndex 为 key 避免 LaunchedEffect 被缩略图更新反复取消，造成滚动动画多次中断。
+    // dataSetKey + visibleIndex == target 守卫防止非必要的重复滚动。
+    LaunchedEffect(initialIndex) {
         try {
             if (isDragged) return@LaunchedEffect  // don't steal scroll during active drag
             val count = snapshotFlow { listState.layoutInfo.totalItemsCount }
