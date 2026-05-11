@@ -8,27 +8,56 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Build + install to phone (auto-detects device, falls back to build-only)
 bash /e/playground/install.sh
 
-# Build only
-/d/Android/gradle/gradle-8.7/bin/gradle assembleDebug -p /e/playground
+# Build only (use gradlew if available, else gradle directly)
+./gradlew assembleDebug
 
 # Run all tests (JVM, no device needed)
-/d/Android/gradle/gradle-8.7/bin/gradle testDebugUnitTest -p /e/playground
+./gradlew testDebugUnitTest
 
 # Run a single test class
-/d/Android/gradle/gradle-8.7/bin/gradle testDebugUnitTest -p /e/playground --tests "*FolderListViewModelTest*"
+./gradlew testDebugUnitTest --tests "*ReaderViewModelTest*"
 ```
 
-Requires `JAVA_HOME=/d/Android/jdk` and `ANDROID_HOME=/d/Android/sdk`. JDK 17 Temurin, SDK API 34. minSdk 26.
+Requires `JAVA_HOME=/d/Android/jdk` and `ANDROID_HOME=/d/Android/sdk`. JDK 17 Temurin, SDK API 34 (compileSdk), minSdk 26, targetSdk 34.
 
 ## Architecture
 
-Kotlin + Jetpack Compose (Material 3), MVVM, no DI framework. Compose BOM 2025.03.00.
+Kotlin + Jetpack Compose (Material 3), MVVM, no DI framework. Compose BOM 2025.03.00. ExoPlayer (Media3) for video, Coil for async image loading + `VideoFrameDecoder` for thumbnails.
 
-**Data flow**: ViewModel → `StateFlow<State>` → Composable collects via `collectAsState()`.
+**Data flow**: ViewModel → `StateFlow<ReaderState>` → Composable collects via `collectAsState()`. One-way data flow: UI calls ViewModel methods → ViewModel updates `MutableStateFlow`.
+
+**Storage**: DataStore Preferences (sort prefs, theme, grid columns) + JSON file cache (folder list, hidden parents, media dimensions) in `cacheDir`.
+
+### Package Layout
+
+```
+com.example.reader/
+├── ReaderApp.kt               # Application, Coil ImageLoaderFactory, theme init
+├── MainActivity.kt             # Single activity, sets content with NavGraph
+├── navigation/NavGraph.kt      # 7 routes, Routes object, safePopBackStack helper
+├── data/
+│   ├── model/MediaItem.kt      # uri, name, mimeType, size, parentId, width/height, aspectRatio
+│   ├── model/MediaFolder.kt    # id(PARENT), folderName, coverImageUri, mediaCount
+│   └── repository/MediaRepository.kt  # Interface + AndroidMediaRepository, SortMode/SortOrder enums
+├── ui/
+│   ├── folderlist/             # FolderListScreen + FolderListViewModel, cache-first init
+│   ├── mediagrid/              # MediaGridScreen, reuses ReaderViewModel, FastScroller
+│   ├── reader/                 # ReaderScreen + ReaderViewModel + ContinuousScrollReader + PagerReader
+│   ├── search/                 # SearchScreen + SearchViewModel, debounced keystroke search
+│   ├── settings/               # SettingsScreen + SettingsViewModel, all DataStore prefs
+│   ├── player/                 # VideoPlayerScreen, ExoPlayer lifecycle-aware
+│   ├── common/FastScroller.kt  # Right-side drag scroller for LazyVerticalGrid
+│   └── theme/ThemeState.kt     # Singleton, LIGHT/DARK/AMOLED_BLACK, DataStore persistence
+└── util/
+    ├── AppSettings.kt          # DataStore delegate, PreferenceKeys, AppSettingsData, save helpers
+    ├── FolderCache.kt          # JSON I/O for folder list + .nomedia hidden parents
+    ├── MediaDimensionsCache.kt # JSON-persisted URI→(width,height) map, BitmapFactory bounds decode
+    └── PermissionHelper.kt     # READ_MEDIA_IMAGES/VIDEO (33+) | READ_EXTERNAL_STORAGE (legacy)
+```
 
 ### Navigation
 
-7 routes in `navigation/NavGraph.kt`:
+7 routes in `NavGraph.kt`, defined via `Routes` object:
 
 ```
 folder_list → media_grid/{parentId} → reader/{parentId}/{initialIndex}
@@ -37,73 +66,92 @@ folder_list → search
 folder_list → settings → about
 ```
 
-Search results navigate to `reader/{item.parentId}/0`. `MediaItem` carries `parentId` for this purpose.
+Search navigates to `reader/{item.parentId}/0`. Video URIs are `Uri.encode()`'d. `safePopBackStack()` guards against empty backstack (prevents double-back-to-exit crash).
 
-### Key layers
+### Permissions (AndroidManifest)
 
-- `data/repository/MediaRepository.kt` — Interface + `AndroidMediaRepository`. Unified `MediaStore.Files` query, PARENT-based grouping, `IS_PENDING` filter (API 29+), `.nomedia` detection with cached hidden parents. `SortMode`/`SortOrder` are top-level enums. **Hybrid Media Engine**: `getMediaByFolder()` does dual-phase scan — Phase 1 emits MediaStore results immediately, Phase 2 does `FileTreeWalk` fallback on the target folder to discover unindexed files (jpg/png/webp/heic/avif/etc.), merges deduped by absolute path, re-sorts, and re-emits.
-- `util/AppSettings.kt` — Top-level `Context.dataStore` delegate (`preferencesDataStore`), `PreferenceKeys` object (THEME_MODE, SORT_MODE, SORT_ORDER, GRID_COLUMNS), suspend save helpers.
-- `util/FolderCache.kt` — JSON file I/O for folder list + `.nomedia` hidden parents. `saveFolders()`/`loadFolders()` use `JSONArray`/`JSONObject` serialization. Written after each `getAllFolders()` query, read synchronously in `FolderListViewModel.init()` as StateFlow initial value.
-- `util/PermissionHelper.kt` — Reads `READ_MEDIA_IMAGES` + `READ_MEDIA_VIDEO` (API 33+) or `READ_EXTERNAL_STORAGE` (legacy).
-- `ui/theme/ThemeState.kt` — Singleton `object` with 3-mode `ThemeMode` enum (LIGHT/DARK/AMOLED_BLACK). `cycle()` advances through modes. `onModeChanged: (ThemeMode) -> Unit` callback set by `ReaderApp.onCreate()` for DataStore persistence. `init(mode)` used at startup via `runBlocking { dataStore.data.first() }`.
-- `ui/folderlist/` — `FolderListViewModel` reads cache synchronously in `init` as `MutableStateFlow` initial value to avoid Loading flash. `FolderUiState` sealed interface (Success/Loading/Error). `skipNextLoading` flag ensures first `loadFolders()` call doesn't overwrite cached Success.
-- `ui/reader/` — `ReaderViewModel(MediaRepository, parentId, initialIndex=0, Application?=null)`. Two reader modes in `ReaderState`. `switchMode()` only toggles mode; index sync happens via `onIndexChange` callback from both readers, wired in `ReaderScreen` to `setCurrentIndex()`.
-- `ui/mediagrid/` — Reuses `ReaderViewModel` for data. Grid columns read from DataStore via `runBlocking { … }` at composition time.
-- `ui/search/` — `SearchViewModel(MediaRepository)`, debounced search with `Job.cancel()` on each keystroke. `SearchScreen` with auto-focused OutlinedTextField + 3-column result grid.
-- `ui/settings/` — `SettingsViewModel(Application)` reads/writes all DataStore preferences. `SettingsScreen` with theme picker, sort defaults, grid columns (3/4/5 FilterChip), about link.
-- `ui/player/` — ExoPlayer with lifecycle-aware pause/resume via `DisposableEffect`.
-- `ui/reader/SliderUtils.kt` — `clampSliderTarget(value, itemCount)` utility for rounding and clamping slider values to valid item indices.
+- `READ_MEDIA_IMAGES` + `READ_MEDIA_VIDEO` (API 33+)
+- `READ_EXTERNAL_STORAGE` with `maxSdkVersion=32` (legacy)
+- Activity sets `configChanges="orientation|screenSize|screenLayout|smallestScreenSize"` for manual rotation handling
 
-### Reader zoom
+### Key Layers
 
-Container-level zoom (not per-item). `graphicsLayer` on the entire `LazyColumn`/`HorizontalPager`. Custom `awaitPointerEventScope` gesture handler: `event.zoomChange()` detects pinch, `event.panChange()` detects two-finger pan. Single-finger scroll passes through to the scroll container. `userScrollEnabled = !isZoomed`. Scale clamped to 1f–3f (ContinuousScroll) or 1f–5f (Pager).
+- **`AndroidMediaRepository`** — Unified `MediaStore.Files` query, `PARENT`-based grouping, `IS_PENDING` filter (API 29+). **Hybrid Media Engine**: `getMediaByFolder()` does dual-phase scan — Phase 1 emits MediaStore results immediately, Phase 2 does `FileTreeWalk` fallback (maxDepth=4) to discover unindexed files (jpg/png/webp/heic/avif/mp4/mkv/etc.), merges deduped by absolute path, re-sorts, and re-emits. `.nomedia` detection with cached hidden parents.
+- **`ReaderViewModel`** — Shared by reader and media grid. Dual-init coroutines: (1) load sort prefs from DataStore then `loadMedia()`, (2) listen for external sort changes via `settingsFlow().drop(1)`. Index correction on Phase 2 merge preserves the user's current position by URI matching.
+- **`FolderListViewModel`** — Cache-first init: reads `FolderCache` synchronously as `StateFlow` initial value (avoids Loading flash). `skipNextLoading` flag prevents first `loadFolders()` from overwriting cached success.
+- **`ThemeState`** — Singleton with callback `onModeChanged` set by `ReaderApp.onCreate()` for persistence. `init(mode)` called via `runBlocking { dataStore.data.first() }` at startup.
+- **`AppSettings`** — Top-level `Context.dataStore` delegate. `settingsFlow()` maps `DataStore<Preferences>` to `AppSettingsData`. Separate save helpers for each key.
+- **`FolderCache`** — JSON file I/O in `cacheDir` for folder list + `.nomedia` hidden parents. Written after each query, read synchronously at startup.
+- **`MediaDimensionsCache`** — JSON file mapping URI→(width,height). Populated by `BitmapFactory.Options.inJustDecodeBounds` when MediaStore lacks dimension data (unindexed files).
 
-### ContinuousScrollReader strategy
+### Reader Zoom
 
-- **Cold start**: `rememberLazyListState(initialFirstVisibleItemIndex = safeInitial)` for zero-frame target positioning.
-- **Hot start**: `LaunchedEffect(initialIndex) { snapshotFlow { totalItemsCount } }` gate waits for data, then `animateScrollToItem`. Hybrid jump: |target-cur| > 10 → `scrollToItem(mid)` + `animateScrollToItem(target)`.
-- **contentPadding**: `PaddingValues(vertical = screenHeightDp)` on LazyColumn so items center in viewport via scroll offset.
-- **Aspect ratio placeholders**: `ImageWithAspectPlaceholder` wraps `AsyncImage` in a `Box` with `Modifier.aspectRatio(ratio)`. `DEFAULT_ASPECT_RATIO = 16f/9f` when `item.aspectRatio == 0f` (unindexed files, or no width/height metadata).
-- **Index sync**: `LaunchedEffect(listState) { snapshotFlow { firstVisibleItemIndex }.distinctUntilChanged() }` updates local `visibleIndex` and calls `onIndexChange` callback for ViewModel sync.
+Container-level zoom (not per-item). `graphicsLayer` on the entire `LazyColumn`/`HorizontalPager`. Custom `awaitPointerEventScope` handler: `event.zoomChange()` for pinch, `event.panChange()` for two-finger pan. Single-finger scroll passes through. `userScrollEnabled = !isZoomed`. Scale clamped 1f–3f (ContinuousScroll) or 1f–5f (Pager). `detectTapGestures` for toggle toolbar + double-tap zoom reset.
+
+### ContinuousScrollReader Strategy
+
+- **Cold start**: `rememberLazyListState(initialFirstVisibleItemIndex = safeInitial, initialFirstVisibleItemScrollOffset = centeringOffset)` for zero-frame target + vertical centering.
+- **Hot start**: `LaunchedEffect(mediaItems)` waits for `totalItemsCount > 0` via `snapshotFlow`, then `animateScrollToItem`. Hybrid jump: |target−cur| > `LONG_JUMP_THRESHOLD` (10) → `scrollToItem(mid)` + `animateScrollToItem(target)`.
+- **Content padding**: `PaddingValues(vertical = screenHeightDp)` on LazyColumn so short items center vertically via scroll offset.
+- **Center-detection index**: Uses `snapshotFlow` on `layoutInfo.visibleItemsInfo`, finds the item closest to viewport center (not `firstVisibleItemIndex`).
+- **dataSetKey**: `mediaItems.firstOrNull()?.parentId ?: -1L` as `remember` key for `sliderValue`/`visibleIndex`. Phase 2 data merge doesn't reset visible position.
+- **Triple state lock**: `!isDragged && !isScrolling && !isUserInteracting` guards slider→index write-back, preventing bidirectional binding conflicts.
+- **Aspect ratio placeholders**: `ImageWithAspectPlaceholder` wraps `AsyncImage` in `Box` with `Modifier.aspectRatio(ratio)`. `DEFAULT_ASPECT_RATIO = 16f/9f`.
+- **Hybrid jump with offset**: `calculateCenteringOffset()` computes scroll offset to vertically center short images, top-align tall ones.
+
+### PagerReader Strategy
+
+- `HorizontalPager` with `rememberPagerState(initialPage)`. State lock identical to ContinuousScroll (drag + scroll guard).
+- `snapshotFlow { pagerState.currentPage }` syncs to ViewModel.
+- Slider value range `0f..(totalCount-1)`. Hybrid jump uses `scrollToPage(mid) → animateScrollToPage(target)`.
+- `ContentScale.Fit` for full-page image display.
 
 ### Slider
 
-State lock via `MutableInteractionSource.collectIsDraggedAsState()` + `listState.isScrollInProgress` / `pagerState.isScrollInProgress`. Slider only writes back to `visibleIndex` when `!isDragged && !isScrolling`. `onValueChangeFinished` uses the same hybrid jump strategy as hot start (LONG_JUMP_THRESHOLD = 10, OFFSET = 3).
+State lock via `MutableInteractionSource.collectIsDraggedAsState()` + `listState.isScrollInProgress` / `pagerState.isScrollInProgress`. Slider only writes back when `!isDragged && !isScrolling`. `onValueChangeFinished` applies `clampSliderTarget(value, itemCount)` (round + coerceIn), then hybrid jump.
+
+### FastScroller (MediaGrid)
+
+Right-side drag scroller for `LazyGridState`. `Animatable` alpha: 0.8 while dragging/scrolling, 300ms fade-out after 1.5s idle. Page number bubble on drag. No rendering when `itemCount ≤ 1`.
 
 ## Key Patterns
 
-- ViewModels extend `ViewModel` (not `AndroidViewModel`), accept `MediaRepository` via constructor, use inner `Factory` class for Android creation from composables.
-- `Application?` with default `null` on ViewModel constructors — non-null for production (reads DataStore), null for tests (skips DataStore).
-- `CancellationException` is always rethrown before `Exception` catch in ViewModel coroutines.
-- Coil `AsyncImage` with `VideoFrameDecoder` for all image/video thumbnail loading. `ContentScale.FillWidth` in scroll reader, `Fit` in pager reader, `Crop` in grids.
-- `MediaItem.uri` is nullable (`Uri?`) — test convenience and robustness.
-- `MediaItem.folderPath` stores the full filesystem absolute path (from `DATA` column or `file.absolutePath` for unindexed files).
-- `MediaFolder.id` is MediaStore `PARENT` — unique per storage volume, used as Compose `LazyVerticalGrid` key.
-- Navigation uses `Uri.encode()` for video URIs, string-based routes with `NavType.LongType`/`IntType` arguments.
+- ViewModels extend `ViewModel` (not `AndroidViewModel`), accept `MediaRepository` + `Application?` (null for tests skips DataStore). Inner `Factory` class for `ViewModelProvider`.
+- `CancellationException` always rethrown before `Exception` catch in coroutines.
+- Coil `AsyncImage` with `VideoFrameDecoder` for image/video thumbnails. `ContentScale.FillWidth` in scroll reader, `Fit` in pager, `Crop` in grids.
+- `MediaItem.uri` nullable (`Uri?`) — test convenience. `parentId` used for back-navigation from search results.
+- `MediaItem.folderPath` = full absolute path from `DATA` column (indexed) or `file.absolutePath` (unindexed).
+- `MediaFolder.id` = MediaStore `PARENT`, used as `LazyVerticalGrid` key.
+- `dataSetKey` (parentId) as `remember` key for reader slider state — stabilizes across Phase 1→Phase 2 emission.
+- Navigation `Uri.encode()` for video URIs, string routes with `NavType.LongType`/`IntType`.
+- Immutable state copy: `_state.value = _state.value.copy(field = newValue)`.
 
 ## Testing
 
-3 test files, all JVM unit tests:
+3 test files, all JVM unit tests (`testDebugUnitTest`):
 
-- `FakeMediaRepository` — in-memory implementation with `folders`/`mediaItems`/`searchResults` lists, injectable `foldersError`/`mediaError`/`searchError` for error tests.
-- Tests use `Dispatchers.Unconfined` for synchronous coroutine execution on JVM. `FakeMediaRepository` methods may throw synchronously; callers wrap in try-catch.
-- `returnDefaultValues = true` in testOptions for Android SDK stubs.
-- `Turbine` available as test dependency for Flow testing.
-- `ReaderViewModelTest` (17 tests) — covers initialIndex, setCurrentIndex edge cases, mode switch preserves currentIndex, sort mode/order.
-- `FolderListViewModelTest` (5 tests) — uses `is FolderUiState.Success` pattern matching. Test with null Application skips DataStore.
-- `SliderUtilsTest` (9 tests) — `clampSliderTarget` edge cases (normal, bounds, single, empty, large list).
+| File | Tests | Coverage |
+|------|-------|----------|
+| `ReaderViewModelTest` | 17 | initialIndex, setCurrentIndex edge cases, mode switch preserves index, sort mode/order |
+| `FolderListViewModelTest` | 5 | `is FolderUiState.Success` pattern matching, null Application skips DataStore |
+| `SliderUtilsTest` | 9 | `clampSliderTarget` edge cases (bounds, single, empty, large list) |
+
+Test infrastructure:
+- `FakeMediaRepository` — in-memory with injectable `foldersError/mediaError/searchError` for error cases
+- `Dispatchers.Unconfined` for synchronous JVM coroutines
+- `returnDefaultValues = true` in `testOptions` for Android SDK stubs
+- `Turbine` for `StateFlow` testing
+- ViewModels construct with `application = null` to skip DataStore in tests
 
 ## Agent Automation
 
-### 分级流水线
+| Change Type | Plan | Code Review | Security Review |
+|-------------|------|-------------|-----------------|
+| Typo/string/format | Skip | Skip | Skip |
+| Single-function bug fix | Skip | Required | Skip |
+| New feature / UI change | Required | Required | Skip |
+| Involves IO/URI/permissions/input | Required | Required | Required |
 
-| 改动类型 | plan | code-review | security-review | 示例 |
-|----------|------|-------------|-----------------|------|
-| 修 typo、改字符串、格式化 | 跳过 | 跳过 | 跳过 | 改文案、format 代码 |
-| 单函数 bug 修复 | 跳过 | 审 | 跳过 | 修 crash、修逻辑 |
-| 新功能、UI 改动 | 必须 | 审 | 跳过 | 加进度条、改布局 |
-| 涉及 IO/URI/权限/用户输入 | 必须 | 审 | 审 | 改文件读取、权限处理 |
-
-- 所有审查通过 + `assembleDebug` 成功后，**自动执行 `git add` + `git commit`**。
-- 任何一步失败则停止，不提交。
-- **不确定就升级**：拿不准该不该审 → 审；拿不准该不该 plan → plan。
+- Pipeline: All reviews pass + `assembleDebug` succeeds → auto `git add` + `git commit`
+- Any step fails → stop, no commit
+- When uncertain: escalate (code review if unsure, plan if unsure)

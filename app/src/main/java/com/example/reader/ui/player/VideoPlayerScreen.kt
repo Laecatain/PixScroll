@@ -7,7 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -87,6 +87,8 @@ fun VideoPlayerScreen(
     var duration by remember { mutableLongStateOf(0L) }
     var isControlVisible by remember { mutableStateOf(true) }
     var isSeeking by remember { mutableStateOf(false) }
+    var currentSpeed by remember { mutableFloatStateOf(1f) }
+    var showSpeedIndicator by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     DisposableEffect(exoPlayer) {
@@ -173,10 +175,49 @@ fun VideoPlayerScreen(
                             currentPosition = target
                             // 双击后短暂显示控件
                             isControlVisible = true
+                        },
+                        onLongPress = {
+                            currentSpeed = 3f
+                            showSpeedIndicator = true
+                            exoPlayer.setPlaybackSpeed(3f)
                         }
                     )
                 }
+                // 检测手指抬起以恢复 1x 倍速
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        waitForUpOrCancellation()
+                        if (currentSpeed != 1f) {
+                            currentSpeed = 1f
+                            showSpeedIndicator = false
+                            exoPlayer.setPlaybackSpeed(1f)
+                        }
+                    }
+                }
         )
+
+        // 倍速指示器（始终可见）
+        if (showSpeedIndicator) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 8.dp)
+                    .background(
+                        Color.Black.copy(alpha = 0.55f),
+                        RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    "${currentSpeed.toInt()}x",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
 
         // 控件层
         AnimatedVisibility(
