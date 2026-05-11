@@ -112,9 +112,13 @@ fun ContinuousScrollReader(
     // isScrollInProgress 在 animateScrollToItem 动画期间为 true
     val isScrolling = listState.isScrollInProgress
 
+    val currentTotalCount by rememberUpdatedState(totalCount)
+    val currentOnIndexChange by rememberUpdatedState(onIndexChange)
+
     // 状态锁：用 snapshotFlow 监听视口中心位置的 item，
     // 找到中心最接近屏幕中心的那张图，而非最顶部的 firstVisibleItemIndex
-    LaunchedEffect(listState, mediaItems) {
+    // key 仅保留 listState —— rememberUpdatedState 保证闭包内 totalCount/onIndexChange 始终最新
+    LaunchedEffect(listState) {
         snapshotFlow {
             val layoutInfo = listState.layoutInfo
             val viewportCenter =
@@ -125,9 +129,12 @@ fun ContinuousScrollReader(
         }
             .distinctUntilChanged()
             .collect { raw ->
-                val idx = raw.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
+                val idx = raw.coerceIn(0, (currentTotalCount - 1).coerceAtLeast(0))
                 visibleIndex = idx
-                onIndexChange(idx)
+                // 交互锁保护：拖拽中/跳转动画中不向 ViewModel 写入
+                if (!isDragged && !isUserInteracting) {
+                    currentOnIndexChange(idx)
+                }
             }
     }
 

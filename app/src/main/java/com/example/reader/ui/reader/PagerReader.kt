@@ -65,7 +65,7 @@ fun PagerReader(
 
     val effectiveSliderValue by remember {
         derivedStateOf {
-            if (isDragged || isUserInteracting) {
+            if (isDragged || isUserInteracting || pagerState.isScrollInProgress) {
                 rawSliderValue
             } else {
                 pagerState.currentPage.toFloat()
