@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.reader.data.model.MediaFolder
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
@@ -209,6 +210,7 @@ fun FolderListScreen(
 
 @Composable
 private fun FolderCard(folder: MediaFolder, onClick: () -> Unit) {
+    val context = LocalContext.current
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -219,7 +221,10 @@ private fun FolderCard(folder: MediaFolder, onClick: () -> Unit) {
     ) {
         Box(modifier = Modifier.weight(1f)) {
             AsyncImage(
-                model = folder.coverImageUri,
+                model = ImageRequest.Builder(context)
+                    .data(folder.coverImageUri)
+                    .size(300)
+                    .build(),
                 contentDescription = folder.folderName,
                 modifier = Modifier
                     .fillMaxSize()
