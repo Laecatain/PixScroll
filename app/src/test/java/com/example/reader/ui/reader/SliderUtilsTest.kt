@@ -72,4 +72,14 @@ class SliderUtilsTest {
         assertEquals(9, clampSliderTarget(9.001f, 10))
         assertEquals(9, clampSliderTarget(8.999f, 10))
     }
+
+    @Test
+    fun `phase2 growth clamp uses latest item count`() {
+        // After Phase 2 merges unindexed files, itemCount grows.
+        // The same value should clamp against the CURRENTLY passed itemCount,
+        // not a stale capture from before the merge.
+        assertEquals(14, clampSliderTarget(14f, 15))   // new max after growth
+        assertEquals(9,  clampSliderTarget(14f, 10))   // old max before growth
+        assertEquals(0,  clampSliderTarget(14f, 0))    // empty -> 0, never out of bounds
+    }
 }

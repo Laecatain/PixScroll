@@ -114,7 +114,7 @@ fun ContinuousScrollReader(
 
     // 状态锁：用 snapshotFlow 监听视口中心位置的 item，
     // 找到中心最接近屏幕中心的那张图，而非最顶部的 firstVisibleItemIndex
-    LaunchedEffect(listState) {
+    LaunchedEffect(listState, mediaItems) {
         snapshotFlow {
             val layoutInfo = listState.layoutInfo
             val viewportCenter =
@@ -143,6 +143,7 @@ fun ContinuousScrollReader(
     // visibleIndex == target 守卫防止非必要的重复滚动。
     LaunchedEffect(mediaItems) {
         try {
+            if (isDragged) return@LaunchedEffect  // don't steal scroll during active drag
             val count = snapshotFlow { listState.layoutInfo.totalItemsCount }
                 .first { it > 0 }
             val target = initialIndex.coerceIn(0, count - 1)
@@ -286,8 +287,8 @@ fun ContinuousScrollReader(
                         onValueChangeFinished = {
                             val target = clampSliderTarget(sliderValue, totalCount)
                             sliderValue = target.toFloat()
+                            isUserInteracting = true  // SYNC: must be before coroutine dispatch
                             scope.launch {
-                                isUserInteracting = true
                                 try {
                                     val cur = visibleIndex
                                     if (abs(target - cur) > LONG_JUMP_THRESHOLD) {

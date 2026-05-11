@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.*
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
@@ -48,29 +49,34 @@ fun PagerReader(
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
-    val pagerState = rememberPagerState(initialPage = initialIndex) { mediaItems.size }
+    val safeInitial = initialIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
+    val pagerState = rememberPagerState(initialPage = safeInitial) { mediaItems.size }
     val scope = rememberCoroutineScope()
 
     val isZoomed = scale > 1f
     val totalCount = mediaItems.size
-    var sliderValue by remember { mutableFloatStateOf(initialIndex.toFloat()) }
-    val currentPage = pagerState.currentPage
+    var rawSliderValue by remember { mutableFloatStateOf(safeInitial.toFloat()) }
+    var isUserInteracting by remember { mutableStateOf(false) }
 
-    // 策略1: 状态锁 —— MutableInteractionSource 感知拖拽，isScrollInProgress 感知翻页动画
+    // 策略1: derivedStateOf 声明式同步 —— PagerPage 到 Slider 是 1:1 映射，
+    // 拖拽或跳转动画中锁定在 rawSliderValue，其余时刻从 currentPage 声明式推导。
     val sliderInteractionSource = remember { MutableInteractionSource() }
     val isDragged by sliderInteractionSource.collectIsDraggedAsState()
-    val isScrolling = pagerState.isScrollInProgress
 
-    // 只有无拖拽且无动画时才同步页码到滑块
-    LaunchedEffect(currentPage, isDragged, isScrolling) {
-        if (!isDragged && !isScrolling) {
-            sliderValue = currentPage.toFloat()
+    val effectiveSliderValue by remember {
+        derivedStateOf {
+            if (isDragged || isUserInteracting) {
+                rawSliderValue
+            } else {
+                pagerState.currentPage.toFloat()
+            }
         }
     }
 
-    // 监听翻页位置，同步到 ViewModel（独立于滑块逻辑，使用 snapshotFlow 避免过度回调）
+    // 监听翻页位置，同步到 ViewModel（distinctUntilChanged 过滤重组无效回调）
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }
+            .distinctUntilChanged()
             .collect { page -> onIndexChange(page) }
     }
 
@@ -198,28 +204,34 @@ fun PagerReader(
                         .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
+                    val displayPage = (effectiveSliderValue.roundToInt() + 1)
+                        .coerceIn(1, totalCount.coerceAtLeast(1))
                     Text(
-                        text = "${currentPage + 1} / $totalCount",
+                        text = "$displayPage / $totalCount",
                         color = Color.White,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Slider(
-                        value = sliderValue,
-                        onValueChange = { sliderValue = it },
+                        value = effectiveSliderValue,
+                        onValueChange = { rawSliderValue = it },
                         onValueChangeFinished = {
-                            val target = clampSliderTarget(sliderValue, totalCount)
-                            sliderValue = target.toFloat()
-
+                            isUserInteracting = true  // SYNC: must be before coroutine dispatch
+                            val target = clampSliderTarget(rawSliderValue, totalCount)
+                            rawSliderValue = target.toFloat()
+                            val curPage = pagerState.currentPage
                             scope.launch {
-                                // HorizontalPager 每页等宽，scrollToPage 始终瞬间完成
-                                if (abs(target - currentPage) > 10) {
-                                    val midTarget = if (target > currentPage)
-                                        (target - 3).coerceAtLeast(0)
-                                    else
-                                        (target + 3).coerceAtMost(totalCount - 1)
-                                    pagerState.scrollToPage(midTarget)
+                                try {
+                                    if (abs(target - curPage) > 10) {
+                                        val midTarget = if (target > curPage)
+                                            (target - 3).coerceAtLeast(0)
+                                        else
+                                            (target + 3).coerceAtMost(totalCount - 1)
+                                        pagerState.scrollToPage(midTarget)
+                                    }
+                                    pagerState.animateScrollToPage(target)
+                                } finally {
+                                    isUserInteracting = false
                                 }
-                                pagerState.animateScrollToPage(target)
                             }
                         },
                         valueRange = 0f..(totalCount - 1).toFloat().coerceAtLeast(0f),
