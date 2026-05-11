@@ -30,6 +30,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.reader.data.model.MediaItem
 import com.example.reader.ui.common.AsyncGridImage
+import com.example.reader.util.ThumbnailManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +44,8 @@ fun SearchScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val focusRequester = remember { FocusRequester() }
+    val context = LocalContext.current
+    val thumbnailManager = remember { ThumbnailManager(context) }
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -137,6 +140,7 @@ fun SearchScreen(
                     items(state.results, key = { it.uri ?: it.name }) { item ->
                         SearchResultCell(
                             item = item,
+                            thumbnailManager = thumbnailManager,
                             onClick = {
                                 if (item.isVideo) onVideoClick(item)
                                 else onImageClick(item)
@@ -150,7 +154,7 @@ fun SearchScreen(
 }
 
 @Composable
-private fun SearchResultCell(item: MediaItem, onClick: () -> Unit) {
+private fun SearchResultCell(item: MediaItem, thumbnailManager: ThumbnailManager?, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -160,10 +164,11 @@ private fun SearchResultCell(item: MediaItem, onClick: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         AsyncGridImage(
-            uri = item.uri,
+            item = item,
             contentDescription = item.name,
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+            contentScale = ContentScale.Crop,
+            thumbnailManager = thumbnailManager
         )
         if (item.isVideo) {
             Surface(

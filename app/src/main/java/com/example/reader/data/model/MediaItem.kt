@@ -15,7 +15,8 @@ data class MediaItem(
     val orientation: Int = 0,
     val mediaType: Int = 0,
     val width: Int = 0,
-    val height: Int = 0
+    val height: Int = 0,
+    val thumbnailPath: String? = null
 ) {
     val isVideo: Boolean get() = mimeType.startsWith("video/")
 

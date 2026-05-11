@@ -10,16 +10,20 @@ import com.example.reader.data.repository.AndroidMediaRepository
 import com.example.reader.data.repository.MediaRepository
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
+import com.example.reader.util.ThumbnailManager
 import com.example.reader.util.saveSortMode
 import com.example.reader.util.saveSortOrder
 import com.example.reader.util.settingsFlow
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class ReaderMode { ContinuousScroll, Pager }
 
@@ -45,6 +49,13 @@ class ReaderViewModel(
 
     private val _state = MutableStateFlow(ReaderState(currentIndex = initialIndex))
     val state: StateFlow<ReaderState> = _state.asStateFlow()
+
+    // ── Generation ID Ticket System ──
+    private var mediaLoadJob: Job? = null
+    private var currentGeneration = 0
+    @Volatile private var isFrozen = false
+
+    private val thumbnailManager: ThumbnailManager? = application?.let { ThumbnailManager(it) }
 
     init {
         if (application != null) {
@@ -83,6 +94,12 @@ class ReaderViewModel(
         }
     }
 
+    /** 冻结所有后台工作，用于离开界面时防止僵尸协程。 */
+    fun stopAllWork() {
+        mediaLoadJob?.cancel()
+        isFrozen = true
+    }
+
     fun setSortMode(mode: SortMode) {
         _state.value = _state.value.copy(sortMode = mode)
         application?.let { app ->
@@ -109,10 +126,17 @@ class ReaderViewModel(
     }
 
     private fun loadMedia() {
-        viewModelScope.launch {
+        // 取消前序任务，提升代际 ID，杀死所有过期协程
+        mediaLoadJob?.cancel()
+        isFrozen = false
+        val myGeneration = ++currentGeneration
+
+        mediaLoadJob = viewModelScope.launch {
             val prevState = _state.value
             val prevUri = prevState.mediaItems.getOrNull(prevState.currentIndex)?.uri?.toString()
             var isFirstEmission = true
+
+            // ── Phase 1: 仓库 Flow 直通发射（带索引修正）──
             try {
                 repository.getMediaByFolder(
                     parentId,
@@ -122,8 +146,6 @@ class ReaderViewModel(
                 ).collect { items ->
                     val folderName = items.firstOrNull()?.folderPath
                         ?.substringBeforeLast("/")?.substringAfterLast("/") ?: ""
-                    // 索引修正: 首次发射用 prevState 判断首次加载，
-                    // 后续发射（Phase 2 合并）从当前状态修正，避免覆盖用户已滚动的位置
                     val reconciledIndex = if (isFirstEmission) {
                         isFirstEmission = false
                         if (prevState.mediaItems.isEmpty()) {
@@ -156,6 +178,52 @@ class ReaderViewModel(
                 throw e
             } catch (e: Exception) {
                 _state.value = _state.value.copy(isLoading = false, error = e.message ?: "加载失败")
+                return@launch
+            }
+
+            // ── Phase 2: 异步批量更新 thumbnailPath ──
+            val mgr = thumbnailManager ?: return@launch
+            val currentItems = _state.value.mediaItems
+            if (currentItems.isEmpty()) return@launch
+
+            withContext(Dispatchers.IO) {
+                currentItems.chunked(10).forEach { chunk ->
+                    // 代际检查：如果已过期则静默退出
+                    if (myGeneration != currentGeneration || isFrozen) return@withContext
+
+                    val updatedChunk = chunk.map { item ->
+                        if (item.isVideo) {
+                            if (mgr.exists(item.folderPath, item.dateModified, item.size)) {
+                                val thumbPath = mgr.getThumbFile(item.folderPath, item.dateModified, item.size)
+                                if (thumbPath.exists()) {
+                                    return@map item.copy(thumbnailPath = thumbPath.absolutePath)
+                                }
+                            }
+                        }
+                        item
+                    }
+
+                    // 找到 chunk 对应的索引范围并更新
+                    val updatedList = _state.value.mediaItems.toMutableList()
+                    var changed = false
+                    for (i in updatedList.indices) {
+                        val chunkItem = updatedChunk.getOrNull(i - (currentItems.indexOf(chunk.first()).coerceAtLeast(0)))
+                        if (chunkItem != null && chunkItem !== updatedList[i]) {
+                            // 通过 folderPath + dateModified + size 匹配
+                            val original = updatedList[i]
+                            if (original.folderPath == chunkItem.folderPath &&
+                                original.dateModified == chunkItem.dateModified &&
+                                original.size == chunkItem.size) {
+                                updatedList[i] = chunkItem
+                                changed = true
+                            }
+                        }
+                    }
+
+                    if (changed) {
+                        _state.value = _state.value.copy(mediaItems = updatedList)
+                    }
+                }
             }
         }
     }

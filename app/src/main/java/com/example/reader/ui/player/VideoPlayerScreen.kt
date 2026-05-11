@@ -2,6 +2,7 @@ package com.example.reader.ui.player
 
 import android.app.Activity
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -22,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
@@ -38,14 +40,18 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.File
 
 @Composable
 fun VideoPlayerScreen(
     videoUri: Uri,
+    thumbnailPath: String? = null,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -58,6 +64,9 @@ fun VideoPlayerScreen(
             playWhenReady = true
         }
     }
+
+    // ── 缩略图→视频过渡 ──
+    var isFirstFrameRendered by remember { mutableStateOf(false) }
 
     // ── 生命周期 ──
     DisposableEffect(lifecycle) {
@@ -77,11 +86,10 @@ fun VideoPlayerScreen(
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
-            exoPlayer.release()
         }
     }
 
-    // ── 播放状态 ──
+    // ── Player 监听：首帧渲染 + 播放状态 ──
     var isPlaying by remember { mutableStateOf(exoPlayer.playWhenReady) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
@@ -100,15 +108,25 @@ fun VideoPlayerScreen(
                 if (state == Player.STATE_READY) {
                     duration = exoPlayer.duration.coerceAtLeast(0L)
                 }
-                // 播放结束时重置控件可见
                 if (state == Player.STATE_ENDED) {
                     isPlaying = false
                     isControlVisible = true
                 }
             }
+            override fun onRenderedFirstFrame() {
+                isFirstFrameRendered = true
+            }
         }
         exoPlayer.addListener(listener)
         onDispose { exoPlayer.removeListener(listener) }
+    }
+
+    // ── 返回手势拦截：先清理播放器，再导航返回 ──
+    BackHandler {
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
+        exoPlayer.release()
+        onBack()
     }
 
     // ── 进度轮询 ──
@@ -147,7 +165,7 @@ fun VideoPlayerScreen(
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black)
     ) {
-        // 视频渲染层
+        // 底部层：视频渲染
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -158,6 +176,19 @@ fun VideoPlayerScreen(
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        // 缩略图占位：首帧渲染前显示，之后立刻消失
+        if (!isFirstFrameRendered && thumbnailPath != null) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(File(thumbnailPath))
+                    .crossfade(false)
+                    .build(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+        }
 
         // 手势层
         Box(
@@ -173,7 +204,6 @@ fun VideoPlayerScreen(
                                 .coerceIn(0, duration)
                             exoPlayer.seekTo(target)
                             currentPosition = target
-                            // 双击后短暂显示控件
                             isControlVisible = true
                         },
                         onLongPress = {
@@ -183,7 +213,6 @@ fun VideoPlayerScreen(
                         }
                     )
                 }
-                // 检测手指抬起以恢复 1x 倍速
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
@@ -197,7 +226,7 @@ fun VideoPlayerScreen(
                 }
         )
 
-        // 倍速指示器（始终可见）
+        // 倍速指示器
         if (showSpeedIndicator) {
             Box(
                 modifier = Modifier
@@ -226,7 +255,6 @@ fun VideoPlayerScreen(
             exit = fadeOut()
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                // ── 返回按钮 (左上角, 48dp 触控区) ──
                 Surface(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -248,7 +276,6 @@ fun VideoPlayerScreen(
                     }
                 }
 
-                // ── 播放/暂停按钮 (居中) ──
                 Surface(
                     modifier = Modifier
                         .align(Alignment.Center)
@@ -270,7 +297,6 @@ fun VideoPlayerScreen(
                     }
                 }
 
-                // ── 底部进度栏 ──
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -287,47 +313,47 @@ fun VideoPlayerScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    formatTime(currentPosition),
-                                    color = Color.White.copy(alpha = 0.85f),
-                                    fontSize = 13.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                Text(
-                                    formatTime(duration),
-                                    color = Color.White.copy(alpha = 0.55f),
-                                    fontSize = 13.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Slider(
-                                value = currentPosition.toFloat(),
-                                onValueChange = {
-                                    isSeeking = true
-                                    currentPosition = it.toLong()
-                                },
-                                onValueChangeFinished = {
-                                    exoPlayer.seekTo(currentPosition)
-                                    scope.launch {
-                                        delay(50)
-                                        isSeeking = false
-                                    }
-                                },
-                                valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = Color.White,
-                                    activeTrackColor = Color.White,
-                                    inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                                )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                formatTime(currentPosition),
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                formatTime(duration),
+                                color = Color.White.copy(alpha = 0.55f),
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace
                             )
                         }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Slider(
+                            value = currentPosition.toFloat(),
+                            onValueChange = {
+                                isSeeking = true
+                                currentPosition = it.toLong()
+                            },
+                            onValueChangeFinished = {
+                                exoPlayer.seekTo(currentPosition)
+                                scope.launch {
+                                    delay(50)
+                                    isSeeking = false
+                                }
+                            },
+                            valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = Color.White,
+                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                            )
+                        )
                     }
+                }
             }
         }
     }

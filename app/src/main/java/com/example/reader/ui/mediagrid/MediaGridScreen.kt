@@ -14,18 +14,24 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.reader.data.model.MediaItem
@@ -35,6 +41,7 @@ import com.example.reader.ui.common.AsyncGridImage
 import com.example.reader.ui.common.FastScroller
 import com.example.reader.ui.reader.ReaderViewModel
 import com.example.reader.util.PreferenceKeys
+import com.example.reader.util.ThumbnailManager
 import com.example.reader.util.dataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -45,7 +52,7 @@ fun MediaGridScreen(
     parentId: Long,
     mediaType: Int = 0,
     onImageClick: (index: Int) -> Unit,
-    onVideoClick: (MediaItem) -> Unit,
+    onVideoClick: (path: String, thumbnailPath: String?) -> Unit,
     onBack: () -> Unit,
     viewModel: ReaderViewModel = viewModel(
         factory = ReaderViewModel.Factory(
@@ -59,8 +66,31 @@ fun MediaGridScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
 
-    // Read grid columns from DataStore
     val context = LocalContext.current
+    val thumbnailManager = remember { ThumbnailManager(context) }
+
+    // ── 导航守卫：防止双击快速导航；返回时自动复位 ──
+    var isNavigating by remember { mutableStateOf(false) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) isNavigating = false
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+
+    // 视频缩略图预暖：后台提前生成未缓存的缩略图（并发上限 2）
+    LaunchedEffect(state.mediaItems) {
+        state.mediaItems
+            .filter { it.isVideo }
+            .forEach { video ->
+                launch {
+                    thumbnailManager.generateThumbnail(video.folderPath, video.dateModified, video.size)
+                }
+            }
+    }
+
     val gridColumns = remember {
         try {
             runBlocking {
@@ -159,9 +189,18 @@ fun MediaGridScreen(
                         itemsIndexed(state.mediaItems, key = { _, item -> item.uri ?: item.name }) { index, item ->
                             MediaGridCell(
                                 item = item,
+                                thumbnailManager = thumbnailManager,
                                 onClick = {
-                                    if (item.isVideo) onVideoClick(item)
-                                    else onImageClick(index)
+                                    if (item.isVideo) {
+                                        if (isNavigating) return@MediaGridCell
+                                        isNavigating = true
+                                        viewModel.stopAllWork()
+                                        item.uri?.let { uri ->
+                                            onVideoClick(uri.toString(), item.thumbnailPath)
+                                        }
+                                    } else {
+                                        onImageClick(index)
+                                    }
                                 }
                             )
                         }
@@ -178,7 +217,7 @@ fun MediaGridScreen(
 }
 
 @Composable
-private fun MediaGridCell(item: MediaItem, onClick: () -> Unit) {
+private fun MediaGridCell(item: MediaItem, thumbnailManager: ThumbnailManager?, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -188,10 +227,11 @@ private fun MediaGridCell(item: MediaItem, onClick: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         AsyncGridImage(
-            uri = item.uri,
+            item = item,
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+            contentScale = ContentScale.Crop,
+            thumbnailManager = thumbnailManager
         )
         if (item.isVideo) {
             Surface(

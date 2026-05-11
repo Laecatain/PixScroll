@@ -25,14 +25,15 @@ object Routes {
     const val FOLDER_LIST = "folder_list"
     const val MEDIA_GRID = "media_grid/{parentId}?type={type}"
     const val READER = "reader/{parentId}/{initialIndex}?type={type}"
-    const val VIDEO_PLAYER = "video_player/{videoUri}"
+    const val VIDEO_PLAYER = "video_player/{videoUri}?thumbnailPath={thumbnailPath}"
     const val SETTINGS = "settings"
     const val SEARCH = "search"
     const val ABOUT = "about"
 
     fun mediaGrid(parentId: Long, mediaType: Int = 0) = "media_grid/$parentId?type=$mediaType"
     fun reader(parentId: Long, initialIndex: Int = 0, mediaType: Int = 0) = "reader/$parentId/$initialIndex?type=$mediaType"
-    fun videoPlayer(videoUri: String) = "video_player/${Uri.encode(videoUri)}"
+    fun videoPlayer(videoUri: String, thumbnailPath: String? = null) =
+        "video_player/${Uri.encode(videoUri)}?thumbnailPath=${thumbnailPath?.let { Uri.encode(it) } ?: ""}"
 }
 
 private fun NavHostController.safePopBackStack() {
@@ -73,10 +74,8 @@ fun NavGraph(navController: NavHostController) {
                 onImageClick = { index ->
                     navController.navigate(Routes.reader(parentId, index, mediaType))
                 },
-                onVideoClick = { item ->
-                    item.uri?.let { uri ->
-                        navController.navigate(Routes.videoPlayer(uri.toString()))
-                    }
+                onVideoClick = { path, thumbnailPath ->
+                    navController.navigate(Routes.videoPlayer(path, thumbnailPath))
                 },
                 onBack = { navController.safePopBackStack() }
             )
@@ -100,7 +99,7 @@ fun NavGraph(navController: NavHostController) {
                 onBack = { navController.safePopBackStack() },
                 onVideoClick = { item ->
                     item.uri?.let { uri ->
-                        navController.navigate(Routes.videoPlayer(uri.toString()))
+                        navController.navigate(Routes.videoPlayer(uri.toString(), item.thumbnailPath))
                     }
                 }
             )
@@ -108,11 +107,16 @@ fun NavGraph(navController: NavHostController) {
 
         composable(
             route = Routes.VIDEO_PLAYER,
-            arguments = listOf(navArgument("videoUri") { type = NavType.StringType })
+            arguments = listOf(
+                navArgument("videoUri") { type = NavType.StringType },
+                navArgument("thumbnailPath") { type = NavType.StringType; defaultValue = "" }
+            )
         ) { backStackEntry ->
             val uriString = backStackEntry.arguments?.getString("videoUri") ?: return@composable
+            val thumbnailPath = backStackEntry.arguments?.getString("thumbnailPath")?.ifEmpty { null }
             VideoPlayerScreen(
                 videoUri = Uri.parse(uriString),
+                thumbnailPath = thumbnailPath,
                 onBack = { navController.safePopBackStack() }
             )
         }
@@ -131,7 +135,7 @@ fun NavGraph(navController: NavHostController) {
                 },
                 onVideoClick = { item ->
                     item.uri?.let { uri ->
-                        navController.navigate(Routes.videoPlayer(uri.toString()))
+                        navController.navigate(Routes.videoPlayer(uri.toString(), item.thumbnailPath))
                     }
                 },
                 onBack = { navController.safePopBackStack() }
