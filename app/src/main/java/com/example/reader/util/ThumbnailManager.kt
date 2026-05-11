@@ -2,7 +2,6 @@ package com.example.reader.util
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.media.ThumbnailUtils
 import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +15,8 @@ import java.security.MessageDigest
  * 职责：
  * 1. 将视频帧抽稀为 JPG 文件存入 cacheDir/thumbnails/
  * 2. 用 (path + lastModified + size) 的 MD5 作为唯一缓存键
- * 3. 后台抽帧使用 [MediaMetadataRetriever]，并发限制为 2
+ * 3. 全部 IO 均在 thumbDispatcher（limitedParallelism=2）上执行，
+ *    避免与 Coil 读取 L2 缓存的线程竞争
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ThumbnailManager(private val context: Context) {
@@ -59,13 +59,13 @@ class ThumbnailManager(private val context: Context) {
 
     /**
      * 生成视频缩略图并写入磁盘缓存。
-     * 如果已缓存则直接返回。
+     * 所有 IO（包括 exists 检查）均在 thumbDispatcher 上执行。
      */
     suspend fun generateThumbnail(videoPath: String, dateModified: Long, size: Long): File? {
-        if (exists(videoPath, dateModified, size)) {
-            return getThumbFile(videoPath, dateModified, size)
-        }
         return withContext(thumbDispatcher) {
+            if (exists(videoPath, dateModified, size)) {
+                return@withContext getThumbFile(videoPath, dateModified, size)
+            }
             generateThumbnailSync(videoPath, dateModified, size)
         }
     }
@@ -93,40 +93,13 @@ class ThumbnailManager(private val context: Context) {
         }
     }
 
-    /** 从尺寸未知的视频文件解码一帧，生成缩略图并存入缓存。 */
-    suspend fun generateThumbnailFromUri(videoPath: String, uri: android.net.Uri, size: Long): File? {
-        val dateModified = try {
-            File(videoPath).lastModified()
-        } catch (_: Exception) { System.currentTimeMillis() }
-
-        if (exists(videoPath, dateModified, size)) {
-            return getThumbFile(videoPath, dateModified, size)
-        }
-
-        return withContext(thumbDispatcher) {
-            try {
-                val retriever = android.media.MediaMetadataRetriever()
-                retriever.setDataSource(context, uri)
-                val bitmap = retriever.frameAtTime
-                retriever.release()
-                val bmp = bitmap ?: return@withContext null
-                val file = getThumbFile(videoPath, dateModified, size)
-                save(bmp, file)
-                bmp.recycle()
-                file
-            } catch (_: Exception) {
-                null
-            }
-        }
-    }
-
     private fun hashKey(input: String): String {
         val digest = MessageDigest.getInstance("MD5")
         return digest.digest(input.toByteArray())
             .joinToString("") { "%02x".format(it) }
     }
 
-    /** 按最长边缩放，保持宽高比。 */
+    /** 按最长边缩放，保持宽高比。确保 L2 缓存文件 ~20-50KB。 */
     private fun scaleToMaxDimension(bitmap: Bitmap, maxDimension: Int): Bitmap {
         val longestEdge = maxOf(bitmap.width, bitmap.height)
         if (longestEdge <= maxDimension) return bitmap

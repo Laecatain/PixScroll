@@ -40,6 +40,7 @@ import com.example.reader.data.repository.SortOrder
 import com.example.reader.ui.common.AsyncGridImage
 import com.example.reader.ui.common.FastScroller
 import com.example.reader.ui.reader.ReaderViewModel
+import com.example.reader.util.PlayerPreloader
 import com.example.reader.util.PreferenceKeys
 import com.example.reader.util.ThumbnailManager
 import com.example.reader.util.dataStore
@@ -80,8 +81,11 @@ fun MediaGridScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
 
-    // 视频缩略图预暖：后台提前生成未缓存的缩略图（并发上限 2）
-    LaunchedEffect(state.mediaItems) {
+    // 视频缩略图预暖：仅在首次加载时触发一次（key=parentId 避免 Phase 2 更新时重启）
+    val hasWarmed = remember { mutableStateOf(false) }
+    LaunchedEffect(parentId) {
+        if (hasWarmed.value) return@LaunchedEffect
+        hasWarmed.value = true
         state.mediaItems
             .filter { it.isVideo }
             .forEach { video ->
@@ -196,7 +200,9 @@ fun MediaGridScreen(
                                         isNavigating = true
                                         viewModel.stopAllWork()
                                         item.uri?.let { uri ->
-                                            onVideoClick(uri.toString(), item.thumbnailPath)
+                                            val uriStr = uri.toString()
+                                            PlayerPreloader.prewarm(context, uriStr)
+                                            onVideoClick(uriStr, item.thumbnailPath)
                                         }
                                     } else {
                                         onImageClick(index)

@@ -187,36 +187,19 @@ class ReaderViewModel(
             if (currentItems.isEmpty()) return@launch
 
             withContext(Dispatchers.IO) {
-                currentItems.chunked(10).forEach { chunk ->
+                // 用 withIndex 保留原始索引，直接通过索引更新，避免脆弱的下标匹配
+                currentItems.withIndex().chunked(5).forEach { chunk ->
                     // 代际检查：如果已过期则静默退出
                     if (myGeneration != currentGeneration || isFrozen) return@withContext
 
-                    val updatedChunk = chunk.map { item ->
-                        if (item.isVideo) {
-                            if (mgr.exists(item.folderPath, item.dateModified, item.size)) {
-                                val thumbPath = mgr.getThumbFile(item.folderPath, item.dateModified, item.size)
-                                if (thumbPath.exists()) {
-                                    return@map item.copy(thumbnailPath = thumbPath.absolutePath)
-                                }
-                            }
-                        }
-                        item
-                    }
-
-                    // 找到 chunk 对应的索引范围并更新
-                    val updatedList = _state.value.mediaItems.toMutableList()
                     var changed = false
-                    for (i in updatedList.indices) {
-                        val chunkItem = updatedChunk.getOrNull(i - (currentItems.indexOf(chunk.first()).coerceAtLeast(0)))
-                        if (chunkItem != null && chunkItem !== updatedList[i]) {
-                            // 通过 folderPath + dateModified + size 匹配
-                            val original = updatedList[i]
-                            if (original.folderPath == chunkItem.folderPath &&
-                                original.dateModified == chunkItem.dateModified &&
-                                original.size == chunkItem.size) {
-                                updatedList[i] = chunkItem
-                                changed = true
-                            }
+                    val updatedList = _state.value.mediaItems.toMutableList()
+
+                    for ((originalIndex, item) in chunk) {
+                        if (item.isVideo && mgr.exists(item.folderPath, item.dateModified, item.size)) {
+                            val thumbFile = mgr.getThumbFile(item.folderPath, item.dateModified, item.size)
+                            updatedList[originalIndex] = item.copy(thumbnailPath = thumbFile.absolutePath)
+                            changed = true
                         }
                     }
 
