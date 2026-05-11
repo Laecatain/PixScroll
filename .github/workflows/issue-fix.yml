@@ -11,7 +11,7 @@ jobs:
       should_run: ${{ steps.check.outputs.should_run }}
     steps:
       - id: check
-        shell: pwsh
+        shell: powershell
         env:
           LABELS: ${{ toJSON(github.event.issue.labels) }}
         run: |
@@ -29,18 +29,18 @@ jobs:
         with:
           fetch-depth: 0
       - name: Configure git
-        shell: pwsh
+        shell: powershell
         run: |
           git config user.name "Claude Auto-Fix"
           git config user.email "claude@local-runner"
       - name: Create branch
-        shell: pwsh
+        shell: powershell
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           git checkout -b auto-fix/issue-$env:ISSUE_NUMBER
       - name: Agent 1/3 - Planner
-        shell: pwsh
+        shell: powershell
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
@@ -75,14 +75,14 @@ jobs:
           name: plan
           path: D:\a\_work\
       - name: Checkout branch
-        shell: pwsh
+        shell: powershell
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           git fetch origin auto-fix/issue-$env:ISSUE_NUMBER 2>$null
           git checkout auto-fix/issue-$env:ISSUE_NUMBER
       - name: Agent 2/3 - Implementer
-        shell: pwsh
+        shell: powershell
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -106,7 +106,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Checkout branch
-        shell: pwsh
+        shell: powershell
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
@@ -114,7 +114,7 @@ jobs:
           git checkout auto-fix/issue-$env:ISSUE_NUMBER
       - name: Agent 3/3 - Reviewer
         id: vote
-        shell: pwsh
+        shell: powershell
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -143,14 +143,14 @@ jobs:
         with:
           fetch-depth: 0
       - name: Checkout branch
-        shell: pwsh
+        shell: powershell
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           git fetch origin auto-fix/issue-$env:ISSUE_NUMBER 2>$null
           git checkout auto-fix/issue-$env:ISSUE_NUMBER
       - name: Commit and push
-        shell: pwsh
+        shell: powershell
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -158,7 +158,7 @@ jobs:
           git commit -m "fix: $env:ISSUE_TITLE"
           git push origin auto-fix/issue-$env:ISSUE_NUMBER 2>&1
       - name: Create PR
-        shell: pwsh
+        shell: powershell
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}

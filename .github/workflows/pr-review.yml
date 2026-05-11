@@ -14,12 +14,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Verify Claude CLI
-        shell: pwsh
+        shell: powershell
         run: claude --version
 
       - name: Run Claude Code review
         id: review
-        shell: pwsh
+        shell: powershell
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}
@@ -39,7 +39,7 @@ jobs:
           Set-Content -Path "$env:RUNNER_TEMP\review.md" -Value $result
 
       - name: Post review comment
-        shell: pwsh
+        shell: powershell
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}

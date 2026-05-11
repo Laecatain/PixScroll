@@ -17,12 +17,12 @@ jobs:
           ref: refs/pull/${{ github.event.issue.number }}/head
 
       - name: Verify Claude CLI
-        shell: pwsh
+        shell: powershell
         run: claude --version
 
       - name: Run Claude with comment request
         id: claude
-        shell: pwsh
+        shell: powershell
         env:
           PR_NUMBER: ${{ github.event.issue.number }}
           COMMENT_BODY: ${{ github.event.comment.body }}
@@ -44,7 +44,7 @@ jobs:
           Set-Content -Path "$env:RUNNER_TEMP\response.md" -Value $result
 
       - name: Post reply
-        shell: pwsh
+        shell: powershell
         env:
           PR_NUMBER: ${{ github.event.issue.number }}
           GH_TOKEN: ${{ github.token }}
