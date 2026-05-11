@@ -1,0 +1,53 @@
+name: "@claude Comment Handler"
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  respond:
+    if: |
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@claude')
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: refs/pull/${{ github.event.issue.number }}/head
+
+      - name: Verify Claude CLI
+        shell: pwsh
+        run: claude --version
+
+      - name: Run Claude with comment request
+        id: claude
+        shell: pwsh
+        env:
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $diff = gh pr diff $env:PR_NUMBER 2>&1
+          $prompt = @"
+          A request was made on PR #$env:PR_NUMBER via a GitHub comment:
+
+          $env:COMMENT_BODY
+
+          Here is the PR diff for context:
+          $diff
+
+          Respond concisely and helpfully.
+          "@
+
+          $result = $prompt | claude 2>&1
+          Set-Content -Path "$env:RUNNER_TEMP\response.md" -Value $result
+
+      - name: Post reply
+        shell: pwsh
+        env:
+          PR_NUMBER: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $body = Get-Content -Path "$env:RUNNER_TEMP\response.md" -Raw
+          gh pr comment $env:PR_NUMBER --body "$body"
