@@ -1,0 +1,48 @@
+name: Self-Hosted Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify Claude CLI
+        shell: pwsh
+        run: claude --version
+
+      - name: Run Claude Code review
+        id: review
+        shell: pwsh
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $diff = gh pr diff $env:PR_NUMBER 2>&1
+          $prompt = @"
+          You are a code reviewer. Review this PR diff for:
+          - Bugs and logic errors
+          - Security vulnerabilities
+          - Code quality and maintainability issues
+
+          PR diff:
+          $diff
+          "@
+
+          $result = $prompt | claude 2>&1
+          Set-Content -Path "$env:RUNNER_TEMP\review.md" -Value $result
+
+      - name: Post review comment
+        shell: pwsh
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $body = Get-Content -Path "$env:RUNNER_TEMP\review.md" -Raw
+          gh pr comment $env:PR_NUMBER --body "$body"

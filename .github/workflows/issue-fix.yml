@@ -1,0 +1,176 @@
+name: Claude Auto-Fix from Issue
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  check_labels:
+    runs-on: self-hosted
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - id: check
+        shell: pwsh
+        env:
+          LABELS: ${{ toJSON(github.event.issue.labels) }}
+        run: |
+          $labels = $env:LABELS | ConvertFrom-Json
+          $hasAutoFix = $labels.name -contains "auto-fix"
+          if ($hasAutoFix) { echo "should_run=true" >> $env:GITHUB_OUTPUT }
+          else { echo "should_run=false" >> $env:GITHUB_OUTPUT }
+
+  plan:
+    needs: check_labels
+    if: needs.check_labels.outputs.should_run == 'true'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Configure git
+        shell: pwsh
+        run: |
+          git config user.name "Claude Auto-Fix"
+          git config user.email "claude@local-runner"
+      - name: Create branch
+        shell: pwsh
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git checkout -b auto-fix/issue-$env:ISSUE_NUMBER
+      - name: Agent 1/3 - Planner
+        shell: pwsh
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          $prompt = @"
+          Read the codebase and write a plan to D:\a\_work\plan.md.
+
+          Issue #$env:ISSUE_NUMBER - $env:ISSUE_TITLE
+          $env:ISSUE_BODY
+
+          List: which files to change and what to change in each.
+          Do NOT edit source code. Only write the plan file.
+          "@
+          $prompt | claude 2>&1
+      - name: Upload plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan
+          path: D:\a\_work\plan.md
+
+  implement:
+    needs: plan
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download plan
+        uses: actions/download-artifact@v4
+        with:
+          name: plan
+          path: D:\a\_work\
+      - name: Checkout branch
+        shell: pwsh
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git fetch origin auto-fix/issue-$env:ISSUE_NUMBER 2>$null
+          git checkout auto-fix/issue-$env:ISSUE_NUMBER
+      - name: Agent 2/3 - Implementer
+        shell: pwsh
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          $plan = Get-Content "D:\a\_work\plan.md" -Raw
+          $prompt = @"
+          Follow this plan. Edit files. Stage changes with git add. Do NOT commit.
+
+          Plan:
+          $plan
+          "@
+          $prompt | claude 2>&1
+
+  review:
+    needs: implement
+    runs-on: self-hosted
+    outputs:
+      passed: ${{ steps.vote.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Checkout branch
+        shell: pwsh
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git fetch origin auto-fix/issue-$env:ISSUE_NUMBER 2>$null
+          git checkout auto-fix/issue-$env:ISSUE_NUMBER
+      - name: Agent 3/3 - Reviewer
+        id: vote
+        shell: pwsh
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          $diff = git diff --cached 2>&1
+          $prompt = @"
+          Review this staged diff. Write PASS if correct, FAIL + reason if not.
+
+          Issue: $env:ISSUE_TITLE
+          Diff:
+          $diff
+          "@
+          $result = $prompt | claude 2>&1
+          if ($result -match "PASS") {
+            echo "passed=true" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "passed=false" >> $env:GITHUB_OUTPUT
+          }
+
+  commit_and_pr:
+    needs: review
+    if: needs.review.outputs.passed == 'true'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Checkout branch
+        shell: pwsh
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git fetch origin auto-fix/issue-$env:ISSUE_NUMBER 2>$null
+          git checkout auto-fix/issue-$env:ISSUE_NUMBER
+      - name: Commit and push
+        shell: pwsh
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git commit -m "fix: $env:ISSUE_TITLE"
+          git push origin auto-fix/issue-$env:ISSUE_NUMBER 2>&1
+      - name: Create PR
+        shell: pwsh
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $body = @"
+          Auto-fix for issue #$env:ISSUE_NUMBER.
+          Closes #$env:ISSUE_NUMBER.
+          "@
+          gh pr create `
+            --base TabRow-HorizontalPager `
+            --head auto-fix/issue-$env:ISSUE_NUMBER `
+            --title "fix: $env:ISSUE_TITLE" `
+            --body $body `
+            --label auto-fix
