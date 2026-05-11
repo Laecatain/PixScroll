@@ -7,5 +7,7 @@ data class MediaFolder(
     val folderName: String,
     val folderPath: String,
     val coverImageUri: Uri?,
-    val mediaCount: Int
+    val mediaCount: Int,
+    val hasImages: Boolean = true,
+    val hasVideos: Boolean = true
 )

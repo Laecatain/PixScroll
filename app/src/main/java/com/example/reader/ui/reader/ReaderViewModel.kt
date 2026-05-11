@@ -37,7 +37,8 @@ class ReaderViewModel(
     private val repository: MediaRepository,
     private val parentId: Long,
     private val initialIndex: Int = 0,
-    private val application: Application? = null
+    private val application: Application? = null,
+    private val mediaType: Int? = null
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ReaderState(currentIndex = initialIndex))
@@ -114,7 +115,8 @@ class ReaderViewModel(
                 repository.getMediaByFolder(
                     parentId,
                     sortMode = prevState.sortMode,
-                    sortOrder = prevState.sortOrder
+                    sortOrder = prevState.sortOrder,
+                    mediaType = mediaType
                 ).collect { items ->
                     val folderName = items.firstOrNull()?.folderPath
                         ?.substringBeforeLast("/")?.substringAfterLast("/") ?: ""
@@ -167,7 +169,8 @@ class ReaderViewModel(
     class Factory(
         private val application: Application,
         private val parentId: Long,
-        private val initialIndex: Int = 0
+        private val initialIndex: Int = 0,
+        private val mediaType: Int? = null
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -175,7 +178,8 @@ class ReaderViewModel(
                 AndroidMediaRepository(application.contentResolver),
                 parentId,
                 initialIndex,
-                application
+                application,
+                mediaType
             ) as T
         }
     }

@@ -26,7 +26,8 @@ class FakeMediaRepository : MediaRepository {
     override fun getMediaByFolder(
         parentId: Long,
         sortMode: SortMode,
-        sortOrder: SortOrder
+        sortOrder: SortOrder,
+        mediaType: Int?
     ): Flow<List<MediaItem>> {
         mediaError?.let { throw it }
         return flowOf(mediaItems[parentId] ?: emptyList())

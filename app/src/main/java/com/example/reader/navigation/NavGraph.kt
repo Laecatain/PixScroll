@@ -23,15 +23,15 @@ import com.example.reader.ui.settings.SettingsScreen
 
 object Routes {
     const val FOLDER_LIST = "folder_list"
-    const val MEDIA_GRID = "media_grid/{parentId}"
-    const val READER = "reader/{parentId}/{initialIndex}"
+    const val MEDIA_GRID = "media_grid/{parentId}?type={type}"
+    const val READER = "reader/{parentId}/{initialIndex}?type={type}"
     const val VIDEO_PLAYER = "video_player/{videoUri}"
     const val SETTINGS = "settings"
     const val SEARCH = "search"
     const val ABOUT = "about"
 
-    fun mediaGrid(parentId: Long) = "media_grid/$parentId"
-    fun reader(parentId: Long, initialIndex: Int = 0) = "reader/$parentId/$initialIndex"
+    fun mediaGrid(parentId: Long, mediaType: Int = 0) = "media_grid/$parentId?type=$mediaType"
+    fun reader(parentId: Long, initialIndex: Int = 0, mediaType: Int = 0) = "reader/$parentId/$initialIndex?type=$mediaType"
     fun videoPlayer(videoUri: String) = "video_player/${Uri.encode(videoUri)}"
 }
 
@@ -46,8 +46,8 @@ fun NavGraph(navController: NavHostController) {
     NavHost(navController = navController, startDestination = Routes.FOLDER_LIST) {
         composable(Routes.FOLDER_LIST) {
             FolderListScreen(
-                onFolderClick = { folder ->
-                    navController.navigate(Routes.mediaGrid(folder.id))
+                onFolderClick = { folder, mediaType ->
+                    navController.navigate(Routes.mediaGrid(folder.id, mediaType))
                 },
                 onSettings = {
                     navController.navigate(Routes.SETTINGS)
@@ -60,13 +60,18 @@ fun NavGraph(navController: NavHostController) {
 
         composable(
             route = Routes.MEDIA_GRID,
-            arguments = listOf(navArgument("parentId") { type = NavType.LongType })
+            arguments = listOf(
+                navArgument("parentId") { type = NavType.LongType },
+                navArgument("type") { type = NavType.IntType; defaultValue = 0 }
+            )
         ) { backStackEntry ->
             val parentId = backStackEntry.arguments?.getLong("parentId") ?: return@composable
+            val mediaType = backStackEntry.arguments?.getInt("type") ?: 0
             MediaGridScreen(
                 parentId = parentId,
+                mediaType = mediaType,
                 onImageClick = { index ->
-                    navController.navigate(Routes.reader(parentId, index))
+                    navController.navigate(Routes.reader(parentId, index, mediaType))
                 },
                 onVideoClick = { item ->
                     item.uri?.let { uri ->
@@ -81,14 +86,17 @@ fun NavGraph(navController: NavHostController) {
             route = Routes.READER,
             arguments = listOf(
                 navArgument("parentId") { type = NavType.LongType },
-                navArgument("initialIndex") { type = NavType.IntType; defaultValue = 0 }
+                navArgument("initialIndex") { type = NavType.IntType; defaultValue = 0 },
+                navArgument("type") { type = NavType.IntType; defaultValue = 0 }
             )
         ) { backStackEntry ->
             val parentId = backStackEntry.arguments?.getLong("parentId") ?: return@composable
             val initialIndex = backStackEntry.arguments?.getInt("initialIndex") ?: 0
+            val mediaType = backStackEntry.arguments?.getInt("type") ?: 0
             ReaderScreen(
                 parentId = parentId,
                 initialIndex = initialIndex,
+                mediaType = mediaType,
                 onBack = { navController.safePopBackStack() },
                 onVideoClick = { item ->
                     item.uri?.let { uri ->

@@ -18,6 +18,8 @@ object FolderCache {
                 obj.put("path", f.folderPath)
                 obj.put("coverUri", f.coverImageUri?.toString() ?: "")
                 obj.put("count", f.mediaCount)
+                obj.put("hasImages", f.hasImages)
+                obj.put("hasVideos", f.hasVideos)
                 json.put(obj)
             }
             File(cacheDir, "folders_cache.json").writeText(json.toString())
@@ -39,7 +41,9 @@ object FolderCache {
                         folderName = obj.getString("name"),
                         folderPath = obj.getString("path"),
                         coverImageUri = if (uriStr.isNotEmpty()) Uri.parse(uriStr) else null,
-                        mediaCount = obj.getInt("count")
+                        mediaCount = obj.getInt("count"),
+                        hasImages = obj.optBoolean("hasImages", true),
+                        hasVideos = obj.optBoolean("hasVideos", true)
                     )
                 )
             }

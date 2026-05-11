@@ -32,7 +32,8 @@ interface MediaRepository {
     fun getMediaByFolder(
         parentId: Long,
         sortMode: SortMode = SortMode.DATE,
-        sortOrder: SortOrder = SortOrder.DESC
+        sortOrder: SortOrder = SortOrder.DESC,
+        mediaType: Int? = null
     ): Flow<List<MediaItem>>
 
     fun searchMedia(query: String): Flow<List<MediaItem>>
@@ -145,6 +146,8 @@ class AndroidMediaRepository(
                 }
 
                 acc.mediaCount++
+                if (mime.startsWith("image/")) acc.hasImage = true
+                if (mime.startsWith("video/")) acc.hasVideo = true
                 val dateTaken = if (dateCol >= 0) it.getLong(dateCol) else 0L
                 if (dateTaken > acc.maxDate) acc.maxDate = dateTaken
 
@@ -166,7 +169,9 @@ class AndroidMediaRepository(
                 folderName = acc.folderName,
                 folderPath = acc.folderPath,
                 coverImageUri = ContentUris.withAppendedId(unifiedUri, acc.coverId),
-                mediaCount = acc.mediaCount
+                mediaCount = acc.mediaCount,
+                hasImages = acc.hasImage,
+                hasVideos = acc.hasVideo
             )
         }.let { list ->
             when (sortMode) {
@@ -189,9 +194,10 @@ class AndroidMediaRepository(
     override fun getMediaByFolder(
         parentId: Long,
         sortMode: SortMode,
-        sortOrder: SortOrder
+        sortOrder: SortOrder,
+        mediaType: Int?
     ): Flow<List<MediaItem>> = flow {
-        val (mediaStoreItems, folderPath) = queryMediaStoreItems(parentId, sortMode, sortOrder)
+        val (mediaStoreItems, folderPath) = queryMediaStoreItems(parentId, sortMode, sortOrder, mediaType)
         val knownFilePaths = mediaStoreItems.mapNotNull { it.folderPath.takeIf { p -> p.isNotEmpty() } }.toSet()
 
         // BitmapFactory 补齐 MediaStore 中缺失的宽高
@@ -264,22 +270,43 @@ class AndroidMediaRepository(
     private fun queryMediaStoreItems(
         parentId: Long,
         sortMode: SortMode,
-        sortOrder: SortOrder
+        sortOrder: SortOrder,
+        mediaType: Int? = null
     ): Pair<List<MediaItem>, String> {
-        val baseSelection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            "${MediaStore.Files.FileColumns.PARENT} = ?" +
-                " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
-                " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0"
+        val baseSelection = if (mediaType != null) {
+            // 按指定类型过滤
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                "${MediaStore.Files.FileColumns.PARENT} = ?" +
+                    " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?" +
+                    " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0"
+            } else {
+                "${MediaStore.Files.FileColumns.PARENT} = ?" +
+                    " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?"
+            }
         } else {
-            "${MediaStore.Files.FileColumns.PARENT} = ?" +
-                " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
+            // 不过滤，查所有图片+视频
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                "${MediaStore.Files.FileColumns.PARENT} = ?" +
+                    " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
+                    " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0"
+            } else {
+                "${MediaStore.Files.FileColumns.PARENT} = ?" +
+                    " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
+            }
         }
 
-        val selectionArgs = arrayOf(
-            parentId.toString(),
-            MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
-            MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString()
-        )
+        val selectionArgs = if (mediaType != null) {
+            arrayOf(
+                parentId.toString(),
+                mediaType.toString()
+            )
+        } else {
+            arrayOf(
+                parentId.toString(),
+                MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
+                MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString()
+            )
+        }
 
         val sortCol = when (sortMode) {
             SortMode.NAME -> MediaStore.Files.FileColumns.DISPLAY_NAME
@@ -556,7 +583,9 @@ class AndroidMediaRepository(
         var coverId: Long,
         var coverIsVideo: Boolean,
         var mediaCount: Int,
-        var maxDate: Long
+        var maxDate: Long,
+        var hasImage: Boolean = false,
+        var hasVideo: Boolean = false
     )
 
     companion object {

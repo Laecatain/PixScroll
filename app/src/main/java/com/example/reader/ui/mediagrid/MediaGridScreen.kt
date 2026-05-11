@@ -42,13 +42,15 @@ import kotlinx.coroutines.runBlocking
 @Composable
 fun MediaGridScreen(
     parentId: Long,
+    mediaType: Int = 0,
     onImageClick: (index: Int) -> Unit,
     onVideoClick: (MediaItem) -> Unit,
     onBack: () -> Unit,
     viewModel: ReaderViewModel = viewModel(
         factory = ReaderViewModel.Factory(
             LocalContext.current.applicationContext as Application,
-            parentId
+            parentId,
+            mediaType = mediaType
         )
     )
 ) {
