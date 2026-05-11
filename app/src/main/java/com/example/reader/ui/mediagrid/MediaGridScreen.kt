@@ -81,6 +81,11 @@ fun MediaGridScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
 
+    // ── 清理预热：离开 Grid 时释放未取走的预热播放器 ──
+    DisposableEffect(Unit) {
+        onDispose { PlayerPreloader.release() }
+    }
+
     // 视频缩略图预暖：仅在首次加载时触发一次（key=parentId 避免 Phase 2 更新时重启）
     val hasWarmed = remember { mutableStateOf(false) }
     LaunchedEffect(parentId) {
