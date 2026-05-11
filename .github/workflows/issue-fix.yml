@@ -5,31 +5,41 @@ on:
     types: [opened]
 
 jobs:
-  plan:
-    if: contains(github.event.issue.labels.*.name, 'auto-fix')
+  check_labels:
     runs-on: self-hosted
     outputs:
-      plan_exit: ${{ steps.plan.outputs.exit_code }}
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - id: check
+        shell: pwsh
+        env:
+          LABELS: ${{ toJSON(github.event.issue.labels) }}
+        run: |
+          $labels = $env:LABELS | ConvertFrom-Json
+          $hasAutoFix = $labels.name -contains "auto-fix"
+          if ($hasAutoFix) { echo "should_run=true" >> $env:GITHUB_OUTPUT }
+          else { echo "should_run=false" >> $env:GITHUB_OUTPUT }
+
+  plan:
+    needs: check_labels
+    if: needs.check_labels.outputs.should_run == 'true'
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Configure git
         shell: pwsh
         run: |
           git config user.name "Claude Auto-Fix"
           git config user.email "claude@local-runner"
-
-      - name: Create fix branch
+      - name: Create branch
         shell: pwsh
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           git checkout -b auto-fix/issue-$env:ISSUE_NUMBER
-
-      - name: "[Agent 1/3] Planner — analyze issue + produce plan"
-        id: plan
+      - name: Agent 1/3 - Planner
         shell: pwsh
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
@@ -37,54 +47,41 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           $prompt = @"
-          You are a software architect. Your job is ONLY to produce a plan.
+          Read the codebase and write a plan to D:\a\_work\plan.md.
 
-          GitHub Issue #$env:ISSUE_NUMBER
-          Title: $env:ISSUE_TITLE
-          Body:
-
+          Issue #$env:ISSUE_NUMBER - $env:ISSUE_TITLE
           $env:ISSUE_BODY
 
-          Instructions:
-          1. Read the codebase to understand the relevant code
-          2. Write a detailed implementation plan to D:\a\_work\plan.md
-          3. The plan must list: which files to change, what to change in each, and in what order
-          4. Do NOT edit any source code — only write the plan file
+          List: which files to change and what to change in each.
+          Do NOT edit source code. Only write the plan file.
           "@
-
           $prompt | claude 2>&1
-          if (Test-Path "D:\a\_work\plan.md") {
-            echo "exit_code=0" >> $env:GITHUB_OUTPUT
-          } else {
-            echo "exit_code=1" >> $env:GITHUB_OUTPUT
-          }
+      - name: Upload plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan
+          path: D:\a\_work\plan.md
 
   implement:
     needs: plan
-    if: needs.plan.outputs.plan_exit == '0'
     runs-on: self-hosted
-    outputs:
-      review_exit: ${{ steps.review.outputs.exit_code }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Configure git
-        shell: pwsh
-        run: |
-          git config user.name "Claude Auto-Fix"
-          git config user.email "claude@local-runner"
-
-      - name: Checkout fix branch
+      - name: Download plan
+        uses: actions/download-artifact@v4
+        with:
+          name: plan
+          path: D:\a\_work\
+      - name: Checkout branch
         shell: pwsh
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           git fetch origin auto-fix/issue-$env:ISSUE_NUMBER 2>$null
           git checkout auto-fix/issue-$env:ISSUE_NUMBER
-
-      - name: "[Agent 2/3] Implementer — execute the plan"
+      - name: Agent 2/3 - Implementer
         shell: pwsh
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
@@ -92,22 +89,31 @@ jobs:
         run: |
           $plan = Get-Content "D:\a\_work\plan.md" -Raw
           $prompt = @"
-          You are an implementer. Follow the plan below precisely.
+          Follow this plan. Edit files. Stage changes with git add. Do NOT commit.
 
           Plan:
           $plan
-
-          Instructions:
-          1. Read each file listed in the plan
-          2. Make the changes described in the plan
-          3. Stage all changes with `git add`
-          4. Do NOT commit yet — only stage
           "@
-
           $prompt | claude 2>&1
 
-      - name: "[Agent 3/3] Reviewer — verify staged changes"
-        id: review
+  review:
+    needs: implement
+    runs-on: self-hosted
+    outputs:
+      passed: ${{ steps.vote.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Checkout branch
+        shell: pwsh
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git fetch origin auto-fix/issue-$env:ISSUE_NUMBER 2>$null
+          git checkout auto-fix/issue-$env:ISSUE_NUMBER
+      - name: Agent 3/3 - Reviewer
+        id: vote
         shell: pwsh
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
@@ -115,45 +121,34 @@ jobs:
         run: |
           $diff = git diff --cached 2>&1
           $prompt = @"
-          You are a code reviewer. Review the following staged diff.
+          Review this staged diff. Write PASS if correct, FAIL + reason if not.
 
           Issue: $env:ISSUE_TITLE
-
           Diff:
           $diff
-
-          Instructions:
-          1. Check for bugs, regressions, and correctness
-          2. Ensure the diff actually addresses the issue
-          3. If the changes look correct, write exactly: PASS
-          4. If there are issues, write exactly: FAIL followed by the reason
           "@
-
           $result = $prompt | claude 2>&1
-          Set-Content -Path "D:\a\_work\review_result.txt" -Value $result
           if ($result -match "PASS") {
-            echo "exit_code=0" >> $env:GITHUB_OUTPUT
+            echo "passed=true" >> $env:GITHUB_OUTPUT
           } else {
-            echo "exit_code=1" >> $env:GITHUB_OUTPUT
+            echo "passed=false" >> $env:GITHUB_OUTPUT
           }
 
   commit_and_pr:
-    needs: implement
-    if: needs.implement.outputs.review_exit == '0'
+    needs: review
+    if: needs.review.outputs.passed == 'true'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Checkout fix branch
+      - name: Checkout branch
         shell: pwsh
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           git fetch origin auto-fix/issue-$env:ISSUE_NUMBER 2>$null
           git checkout auto-fix/issue-$env:ISSUE_NUMBER
-
       - name: Commit and push
         shell: pwsh
         env:
@@ -162,7 +157,6 @@ jobs:
         run: |
           git commit -m "fix: $env:ISSUE_TITLE"
           git push origin auto-fix/issue-$env:ISSUE_NUMBER 2>&1
-
       - name: Create PR
         shell: pwsh
         env:
@@ -170,16 +164,13 @@ jobs:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          $body = @"
+          Auto-fix for issue #$env:ISSUE_NUMBER.
+          Closes #$env:ISSUE_NUMBER.
+          "@
           gh pr create `
             --base TabRow-HorizontalPager `
             --head auto-fix/issue-$env:ISSUE_NUMBER `
             --title "fix: $env:ISSUE_TITLE" `
-            --body "Auto-fix for issue #$env:ISSUE_NUMBER
-
-        This PR was automatically generated:
-        1. **Planner** — analyzed the issue and produced a plan
-        2. **Implementer** — executed the plan
-        3. **Reviewer** — verified the changes
-
-        Closes #$env:ISSUE_NUMBER" `
+            --body $body `
             --label auto-fix
