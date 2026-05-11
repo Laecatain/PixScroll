@@ -112,8 +112,12 @@ fun ContinuousScrollReader(
     // isScrollInProgress 在 animateScrollToItem 动画期间为 true
     val isScrolling = listState.isScrollInProgress
 
+    val currentTotalCount by rememberUpdatedState(totalCount)
+    val currentOnIndexChange by rememberUpdatedState(onIndexChange)
+
     // 状态锁：用 snapshotFlow 监听视口中心位置的 item，
     // 找到中心最接近屏幕中心的那张图，而非最顶部的 firstVisibleItemIndex
+    // key 仅保留 listState —— rememberUpdatedState 保证闭包内 totalCount/onIndexChange 始终最新
     LaunchedEffect(listState) {
         snapshotFlow {
             val layoutInfo = listState.layoutInfo
@@ -125,9 +129,12 @@ fun ContinuousScrollReader(
         }
             .distinctUntilChanged()
             .collect { raw ->
-                val idx = raw.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
+                val idx = raw.coerceIn(0, (currentTotalCount - 1).coerceAtLeast(0))
                 visibleIndex = idx
-                onIndexChange(idx)
+                // 交互锁保护：拖拽中/跳转动画中不向 ViewModel 写入
+                if (!isDragged && !isScrolling && !isUserInteracting) {
+                    currentOnIndexChange(idx)
+                }
             }
     }
 
@@ -138,11 +145,13 @@ fun ContinuousScrollReader(
         }
     }
 
-    // 热启动/数据刷新跳转: 只在 mediaItems 发生变化且当前位置与目标不一致时触发。
-    // parentId 稳定的 dataSetKey 确保 Phase 2 数据合并时 visibleIndex 不被重置，
-    // visibleIndex == target 守卫防止非必要的重复滚动。
-    LaunchedEffect(mediaItems) {
+    // 热启动/数据刷新跳转: 只在 initialIndex 变化（如 Phase 2 URI 调和后索引修正）时触发，
+    // 而非 mediaItems 每次引用变化（Phase 2 缩略图分块更新）都重启。
+    // 以 initialIndex 为 key 避免 LaunchedEffect 被缩略图更新反复取消，造成滚动动画多次中断。
+    // dataSetKey + visibleIndex == target 守卫防止非必要的重复滚动。
+    LaunchedEffect(initialIndex) {
         try {
+            if (isDragged) return@LaunchedEffect
             val count = snapshotFlow { listState.layoutInfo.totalItemsCount }
                 .first { it > 0 }
             val target = initialIndex.coerceIn(0, count - 1)
@@ -286,8 +295,9 @@ fun ContinuousScrollReader(
                         onValueChangeFinished = {
                             val target = clampSliderTarget(sliderValue, totalCount)
                             sliderValue = target.toFloat()
+                            isUserInteracting = true  // SYNC: must be before coroutine dispatch
                             scope.launch {
-                                isUserInteracting = true
+                                // isUserInteracting already set above before dispatch
                                 try {
                                     val cur = visibleIndex
                                     if (abs(target - cur) > LONG_JUMP_THRESHOLD) {
