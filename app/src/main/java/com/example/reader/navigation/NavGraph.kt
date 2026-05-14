@@ -1,4 +1,4 @@
-package com.example.reader.navigation
+﻿package com.example.reader.navigation
 
 import android.net.Uri
 import androidx.compose.foundation.layout.*
@@ -48,7 +48,9 @@ fun NavGraph(navController: NavHostController) {
         composable(Routes.FOLDER_LIST) {
             FolderListScreen(
                 onFolderClick = { folder, mediaType ->
-                    navController.navigate(Routes.mediaGrid(folder.id, mediaType))
+                    navController.navigate(Routes.mediaGrid(folder.id, mediaType)) {
+                        popUpTo(Routes.FOLDER_LIST)
+                    }
                 },
                 onSettings = {
                     navController.navigate(Routes.SETTINGS)
