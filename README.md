@@ -1,4 +1,4 @@
-# 阅读器 / Reader
+﻿# 阅读器 / Reader
 
 > 一个本地的图片和视频阅读器，基于 Jetpack Compose + Material 3 构建。
 > A local image & video reader built with Jetpack Compose and Material 3.
@@ -92,4 +92,4 @@ bash install.sh
 
 ## License
 
-Apache 2.0
+个人非商业使用 / Personal Non-Commercial
