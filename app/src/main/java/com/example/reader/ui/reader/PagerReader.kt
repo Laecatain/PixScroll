@@ -1,4 +1,4 @@
-package com.example.reader.ui.reader
+﻿package com.example.reader.ui.reader
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.*
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
@@ -32,7 +33,6 @@ import coil.compose.AsyncImage
 import com.example.reader.data.model.MediaItem
 import com.example.reader.ui.theme.ThemeState
 import kotlin.math.abs
-import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -179,7 +179,7 @@ fun PagerReader(
                             tint = Color.White
                         )
                     }
-                    TextButton(onClick = onSwitchMode) {
+                    TextButton(onClick = { onIndexChange(clampSliderTarget(effectiveSliderValue, totalCount)); onSwitchMode() }) {
                         Text("连续滚动", color = Color.White)
                     }
                 }
@@ -215,23 +215,10 @@ fun PagerReader(
                         value = effectiveSliderValue,
                         onValueChange = { rawSliderValue = it },
                         onValueChangeFinished = {
-                            isUserInteracting = true  // SYNC: must be before coroutine dispatch
                             val target = clampSliderTarget(rawSliderValue, totalCount)
                             rawSliderValue = target.toFloat()
-                            val curPage = pagerState.currentPage
                             scope.launch {
-                                try {
-                                    if (abs(target - curPage) > 10) {
-                                        val midTarget = if (target > curPage)
-                                            (target - 3).coerceAtLeast(0)
-                                        else
-                                            (target + 3).coerceAtMost(totalCount - 1)
-                                        pagerState.scrollToPage(midTarget)
-                                    }
-                                    pagerState.animateScrollToPage(target)
-                                } finally {
-                                    isUserInteracting = false
-                                }
+                                pagerState.scrollToPage(target)
                             }
                         },
                         valueRange = 0f..(totalCount - 1).toFloat().coerceAtLeast(0f),

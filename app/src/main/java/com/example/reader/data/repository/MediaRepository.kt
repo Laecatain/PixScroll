@@ -32,7 +32,8 @@ interface MediaRepository {
     fun getMediaByFolder(
         parentId: Long,
         sortMode: SortMode = SortMode.DATE,
-        sortOrder: SortOrder = SortOrder.DESC
+        sortOrder: SortOrder = SortOrder.DESC,
+        mediaType: Int? = null
     ): Flow<List<MediaItem>>
 
     fun searchMedia(query: String): Flow<List<MediaItem>>
@@ -68,9 +69,9 @@ class AndroidMediaRepository(
         MediaStore.MediaColumns.HEIGHT
     )
 
-    // ═══════════════════════════════════════════════════════════════
-    //  文件夹列表
-    // ═══════════════════════════════════════════════════════════════
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    //  Ã¦â€“â€¡Ã¤Â»Â¶Ã¥Â¤Â¹Ã¥Ë†â€”Ã¨Â¡Â¨
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 
     override fun getAllFolders(
         sortMode: SortMode,
@@ -145,6 +146,8 @@ class AndroidMediaRepository(
                 }
 
                 acc.mediaCount++
+                if (mime.startsWith("image/")) acc.hasImage = true
+                if (mime.startsWith("video/")) acc.hasVideo = true
                 val dateTaken = if (dateCol >= 0) it.getLong(dateCol) else 0L
                 if (dateTaken > acc.maxDate) acc.maxDate = dateTaken
 
@@ -166,7 +169,9 @@ class AndroidMediaRepository(
                 folderName = acc.folderName,
                 folderPath = acc.folderPath,
                 coverImageUri = ContentUris.withAppendedId(unifiedUri, acc.coverId),
-                mediaCount = acc.mediaCount
+                mediaCount = acc.mediaCount,
+                hasImages = acc.hasImage,
+                hasVideos = acc.hasVideo
             )
         }.let { list ->
             when (sortMode) {
@@ -182,19 +187,20 @@ class AndroidMediaRepository(
         emit(folders)
     }.flowOn(Dispatchers.IO)
 
-    // ═══════════════════════════════════════════════════════════════
-    //  媒体列表（Hybrid: MediaStore → FileTreeWalk）
-    // ═══════════════════════════════════════════════════════════════
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    //  Ã¥Âªâ€™Ã¤Â½â€œÃ¥Ë†â€”Ã¨Â¡Â¨Ã¯Â¼Ë†Hybrid: MediaStore Ã¢â€ â€™ FileTreeWalkÃ¯Â¼â€°
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 
     override fun getMediaByFolder(
         parentId: Long,
         sortMode: SortMode,
-        sortOrder: SortOrder
+        sortOrder: SortOrder,
+        mediaType: Int?
     ): Flow<List<MediaItem>> = flow {
-        val (mediaStoreItems, folderPath) = queryMediaStoreItems(parentId, sortMode, sortOrder)
+        val (mediaStoreItems, folderPath) = queryMediaStoreItems(parentId, sortMode, sortOrder, mediaType)
         val knownFilePaths = mediaStoreItems.mapNotNull { it.folderPath.takeIf { p -> p.isNotEmpty() } }.toSet()
 
-        // BitmapFactory 补齐 MediaStore 中缺失的宽高
+        // BitmapFactory Ã¨Â¡Â¥Ã©Â½Â MediaStore Ã¤Â¸Â­Ã§Â¼ÂºÃ¥Â¤Â±Ã§Å¡â€žÃ¥Â®Â½Ã©Â«Ëœ
         val cache = if (cacheDir != null) MediaDimensionsCache.load(cacheDir) else null
         val recordsToSave = mutableMapOf<String, DimensionRecord>()
         val filledItems = mediaStoreItems.map { item ->
@@ -213,22 +219,22 @@ class AndroidMediaRepository(
             MediaDimensionsCache.save(cacheDir, cache ?: recordsToSave)
         }
 
-        // Phase 1: 快速发射 MediaStore 数据
+        // Phase 1: Ã¥Â¿Â«Ã©â‚¬Å¸Ã¥Ââ€˜Ã¥Â°â€ž MediaStore Ã¦â€¢Â°Ã¦ÂÂ®
         emit(filledItems)
         if (filledItems.isEmpty()) return@flow
 
-        // Phase 2: FileTreeWalk 补偿未索引文件
+        // Phase 2: FileTreeWalk Ã¨Â¡Â¥Ã¥ÂÂ¿Ã¦Å“ÂªÃ§Â´Â¢Ã¥Â¼â€¢Ã¦â€“â€¡Ã¤Â»Â¶
         val rootPath = folderPath.ifEmpty { return@flow }
-        val unindexed = findUnindexedFiles(rootPath, knownFilePaths, cacheDir)
+        val unindexed = findUnindexedFiles(rootPath, knownFilePaths, cacheDir, mediaType)
         if (unindexed.isEmpty()) return@flow
 
         val merged = (filledItems + unindexed).sortedWith(mediaComparator(sortMode, sortOrder))
         emit(merged)
     }.flowOn(Dispatchers.IO)
 
-    // ═══════════════════════════════════════════════════════════════
-    //  搜索
-    // ═══════════════════════════════════════════════════════════════
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    //  Ã¦ÂÅ“Ã§Â´Â¢
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 
     override fun searchMedia(query: String): Flow<List<MediaItem>> = flow {
         if (query.isBlank()) {
@@ -257,29 +263,50 @@ class AndroidMediaRepository(
         emit(readMediaItemsFromCursor(cursor))
     }.flowOn(Dispatchers.IO)
 
-    // ═══════════════════════════════════════════════════════════════
-    //  内部方法
-    // ═══════════════════════════════════════════════════════════════
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    //  Ã¥â€ â€¦Ã©Æ’Â¨Ã¦â€“Â¹Ã¦Â³â€¢
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 
     private fun queryMediaStoreItems(
         parentId: Long,
         sortMode: SortMode,
-        sortOrder: SortOrder
+        sortOrder: SortOrder,
+        mediaType: Int? = null
     ): Pair<List<MediaItem>, String> {
-        val baseSelection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            "${MediaStore.Files.FileColumns.PARENT} = ?" +
-                " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
-                " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0"
+        val baseSelection = if (mediaType != null) {
+            // Ã¦Å’â€°Ã¦Å’â€¡Ã¥Â®Å¡Ã§Â±Â»Ã¥Å¾â€¹Ã¨Â¿â€¡Ã¦Â»Â¤
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                "${MediaStore.Files.FileColumns.PARENT} = ?" +
+                    " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?" +
+                    " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0"
+            } else {
+                "${MediaStore.Files.FileColumns.PARENT} = ?" +
+                    " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?"
+            }
         } else {
-            "${MediaStore.Files.FileColumns.PARENT} = ?" +
-                " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
+            // Ã¤Â¸ÂÃ¨Â¿â€¡Ã¦Â»Â¤Ã¯Â¼Å’Ã¦Å¸Â¥Ã¦â€°â‚¬Ã¦Å“â€°Ã¥â€ºÂ¾Ã§â€°â€¡+Ã¨Â§â€ Ã©Â¢â€˜
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                "${MediaStore.Files.FileColumns.PARENT} = ?" +
+                    " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
+                    " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0"
+            } else {
+                "${MediaStore.Files.FileColumns.PARENT} = ?" +
+                    " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
+            }
         }
 
-        val selectionArgs = arrayOf(
-            parentId.toString(),
-            MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
-            MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString()
-        )
+        val selectionArgs = if (mediaType != null) {
+            arrayOf(
+                parentId.toString(),
+                mediaType.toString()
+            )
+        } else {
+            arrayOf(
+                parentId.toString(),
+                MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
+                MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString()
+            )
+        }
 
         val sortCol = when (sortMode) {
             SortMode.NAME -> MediaStore.Files.FileColumns.DISPLAY_NAME
@@ -346,7 +373,7 @@ class AndroidMediaRepository(
         return items
     }
 
-    /** BitmapFactory.inJustDecodeBounds 解码图片尺寸，不加载像素数据。 */
+    /** BitmapFactory.inJustDecodeBounds Ã¨Â§Â£Ã§Â ÂÃ¥â€ºÂ¾Ã§â€°â€¡Ã¥Â°ÂºÃ¥Â¯Â¸Ã¯Â¼Å’Ã¤Â¸ÂÃ¥Å Â Ã¨Â½Â½Ã¥Æ’ÂÃ§Â´Â Ã¦â€¢Â°Ã¦ÂÂ®Ã£â‚¬â€š */
     private fun decodeBounds(uriStr: String): DimensionRecord? {
         return try {
             val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -363,11 +390,12 @@ class AndroidMediaRepository(
         } catch (_: Exception) { null }
     }
 
-    /** FileTreeWalk 扫描未被 MediaStore 索引的文件 */
+    /** FileTreeWalk Ã¦â€°Â«Ã¦ÂÂÃ¦Å“ÂªÃ¨Â¢Â« MediaStore Ã§Â´Â¢Ã¥Â¼â€¢Ã§Å¡â€žÃ¦â€“â€¡Ã¤Â»Â¶ */
     private suspend fun findUnindexedFiles(
         rootPath: String,
         knownFilePaths: Set<String>,
-        cacheDir: File?
+        cacheDir: File?,
+        mediaType: Int? = null
     ): List<MediaItem> {
         val root = File(rootPath)
         if (!root.isDirectory) return emptyList()
@@ -387,10 +415,15 @@ class AndroidMediaRepository(
                     true
                 }
                 .filter { file ->
-                    file.isFile && file.extension.lowercase() in ALL_MEDIA_EXTENSIONS
+                    val extensions = when (mediaType) {
+                        MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE -> IMAGE_EXTENSIONS
+                        MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO -> VIDEO_EXTENSIONS
+                        else -> ALL_MEDIA_EXTENSIONS
+                    }
+                    file.isFile && file.extension.lowercase() in extensions
                 }
                 .forEach { file ->
-                    currentCoroutineContext().ensureActive() // 支持 ViewModel 销毁时中断扫描
+                    currentCoroutineContext().ensureActive() // Ã¦â€Â¯Ã¦Å’Â ViewModel Ã©â€â‚¬Ã¦Â¯ÂÃ¦â€”Â¶Ã¤Â¸Â­Ã¦â€“Â­Ã¦â€°Â«Ã¦ÂÂ
                     val absPath = file.absolutePath
                     if (absPath in knownFilePaths) return@forEach
 
@@ -428,7 +461,7 @@ class AndroidMediaRepository(
                     )
                 }
         } catch (_: SecurityException) {
-            // 无权限读取时静默跳过
+            // Ã¦â€”Â Ã¦ÂÆ’Ã©â„¢ÂÃ¨Â¯Â»Ã¥Ââ€“Ã¦â€”Â¶Ã©Ââ„¢Ã©Â»ËœÃ¨Â·Â³Ã¨Â¿â€¡
         }
 
         if (recordsToSave != null && recordsToSave.isNotEmpty() && cache != null) {
@@ -465,9 +498,9 @@ class AndroidMediaRepository(
         return if (sortOrder == SortOrder.ASC) cmp.reversed() else cmp
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  .nomedia 检测
-    // ═══════════════════════════════════════════════════════════════
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    //  .nomedia Ã¦Â£â‚¬Ã¦Âµâ€¹
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 
     private fun getHiddenFolderParentIds(): Set<Long> {
         cachedHiddenParents?.let { return it }
@@ -556,7 +589,9 @@ class AndroidMediaRepository(
         var coverId: Long,
         var coverIsVideo: Boolean,
         var mediaCount: Int,
-        var maxDate: Long
+        var maxDate: Long,
+        var hasImage: Boolean = false,
+        var hasVideo: Boolean = false
     )
 
     companion object {

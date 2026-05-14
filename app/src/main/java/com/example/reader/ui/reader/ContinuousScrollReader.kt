@@ -1,4 +1,4 @@
-package com.example.reader.ui.reader
+﻿package com.example.reader.ui.reader
 
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
@@ -151,7 +151,7 @@ fun ContinuousScrollReader(
     // dataSetKey + visibleIndex == target 守卫防止非必要的重复滚动。
     LaunchedEffect(initialIndex) {
         try {
-            if (isDragged) return@LaunchedEffect
+            if (isDragged) return@LaunchedEffect  // don't steal scroll during active drag
             val count = snapshotFlow { listState.layoutInfo.totalItemsCount }
                 .first { it > 0 }
             val target = initialIndex.coerceIn(0, count - 1)
@@ -264,7 +264,7 @@ fun ContinuousScrollReader(
                             "切换主题", tint = Color.White
                         )
                     }
-                    TextButton(onClick = onSwitchMode) {
+                    TextButton(onClick = { onIndexChange(clampSliderTarget(sliderValue, totalCount)); onSwitchMode() }) {
                         Text("切换翻页", color = Color.White)
                     }
                 }
@@ -295,28 +295,10 @@ fun ContinuousScrollReader(
                         onValueChangeFinished = {
                             val target = clampSliderTarget(sliderValue, totalCount)
                             sliderValue = target.toFloat()
-                            isUserInteracting = true  // SYNC: must be before coroutine dispatch
                             scope.launch {
-                                // isUserInteracting already set above before dispatch
-                                try {
-                                    val cur = visibleIndex
-                                    if (abs(target - cur) > LONG_JUMP_THRESHOLD) {
-                                        val mid = if (target > cur)
-                                            (target - LONG_JUMP_OFFSET).coerceAtLeast(0)
-                                        else
-                                            (target + LONG_JUMP_OFFSET).coerceAtMost(totalCount - 1)
-                                        listState.scrollToItem(mid)
-                                    }
-                                    val vp = listState.layoutInfo.viewportSize.height.toFloat()
-                                    val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx, screenHeightPx)
-                                    listState.animateScrollToItem(target, scrollOffset = offset)
-                                } catch (e: kotlinx.coroutines.CancellationException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    Log.d(TAG, "Slider scroll animation interrupted", e)
-                                } finally {
-                                    isUserInteracting = false
-                                }
+                                val vp = listState.layoutInfo.viewportSize.height.toFloat()
+                                val offset = calculateCenteringOffset(mediaItems, target, vp, screenWidthPx, screenHeightPx)
+                                listState.scrollToItem(target, scrollOffset = offset)
                             }
                         },
                         valueRange = 0f..(totalCount - 1).toFloat().coerceAtLeast(0f),

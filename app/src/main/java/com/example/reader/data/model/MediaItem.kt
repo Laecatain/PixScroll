@@ -1,7 +1,9 @@
 package com.example.reader.data.model
 
 import android.net.Uri
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class MediaItem(
     val uri: Uri?,
     val name: String,
@@ -13,7 +15,8 @@ data class MediaItem(
     val orientation: Int = 0,
     val mediaType: Int = 0,
     val width: Int = 0,
-    val height: Int = 0
+    val height: Int = 0,
+    val thumbnailPath: String? = null
 ) {
     val isVideo: Boolean get() = mimeType.startsWith("video/")
 

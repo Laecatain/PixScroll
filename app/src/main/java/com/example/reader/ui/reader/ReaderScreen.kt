@@ -24,13 +24,15 @@ import com.example.reader.data.model.MediaItem
 fun ReaderScreen(
     parentId: Long,
     initialIndex: Int = 0,
+    mediaType: Int = 0,
     onBack: () -> Unit,
     onVideoClick: (MediaItem) -> Unit,
     viewModel: ReaderViewModel = viewModel(
         factory = ReaderViewModel.Factory(
             LocalContext.current.applicationContext as Application,
             parentId,
-            initialIndex
+            initialIndex,
+            mediaType
         )
     )
 ) {

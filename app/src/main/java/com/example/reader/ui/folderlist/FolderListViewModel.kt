@@ -19,13 +19,16 @@ import com.example.reader.util.saveFolderSortOrder
 import com.example.reader.util.settingsFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 private const val TAG = "FolderListVM"
@@ -46,6 +49,9 @@ class FolderListViewModel(
     private val _state: MutableStateFlow<FolderUiState>
     val state: StateFlow<FolderUiState>
 
+    val imageFolders: StateFlow<List<MediaFolder>>
+    val videoFolders: StateFlow<List<MediaFolder>>
+
     init {
         // Cache-First: 同步读取缓存作为 StateFlow 初始值
         val cached = application?.cacheDir?.let { FolderCache.loadFolders(it) }
@@ -57,6 +63,14 @@ class FolderListViewModel(
             _state = MutableStateFlow(FolderUiState.Loading)
         }
         state = _state.asStateFlow()
+
+        imageFolders = _state.map { s ->
+            if (s is FolderUiState.Success) s.folders.filter { it.hasImages } else emptyList()
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        videoFolders = _state.map { s ->
+            if (s is FolderUiState.Success) s.folders.filter { it.hasVideos } else emptyList()
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         if (application != null) {
             // ① 读取首页排序偏好并首次加载
