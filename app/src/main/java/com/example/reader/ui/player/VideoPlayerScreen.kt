@@ -1,4 +1,4 @@
-package com.example.reader.ui.player
+﻿package com.example.reader.ui.player
 
 import android.app.Activity
 import android.net.Uri
@@ -219,6 +219,7 @@ fun VideoPlayerScreen(
         isFirstFrameRendered = false
         isBuffering = false
         sliderPosition = 0L
+        playerPosition = 0L
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
         exoPlayer.setMediaItem(MediaItem.fromUri(videoUri))
@@ -400,38 +401,6 @@ fun VideoPlayerScreen(
                     }
                 }
 
-                // 中央：播放/暂停
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(72.dp),
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.45f),
-                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
-                    onClick = {
-                        if (isPlaying) {
-                            exoPlayer.pause()
-                            // 暂停时同时复位倍速
-                            if (currentSpeed != 1f) {
-                                isLongPressing = false
-                                currentSpeed = 1f
-                                exoPlayer.setPlaybackSpeed(1f)
-                            }
-                        } else {
-                            exoPlayer.play()
-                        }
-                    }
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (isPlaying) "暂停" else "播放",
-                            tint = Color.White,
-                            modifier = Modifier.size(38.dp)
-                        )
-                    }
-                }
-
                 // 底部：进度条
                 Box(
                     modifier = Modifier
@@ -451,14 +420,38 @@ fun VideoPlayerScreen(
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
+                            IconButton(
+                                onClick = {
+                                    if (isPlaying) {
+                                        exoPlayer.pause()
+                                        if (currentSpeed != 1f) {
+                                            isLongPressing = false
+                                            currentSpeed = 1f
+                                            exoPlayer.setPlaybackSpeed(1f)
+                                        }
+                                    } else {
+                                        exoPlayer.play()
+                                    }
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    contentDescription = if (isPlaying) "暂停" else "播放",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 formatTime(displayPosition()),
                                 color = Color.White.copy(alpha = 0.85f),
                                 fontSize = 13.sp,
                                 fontFamily = FontFamily.Monospace
                             )
+                            Spacer(modifier = Modifier.weight(1f))
                             Text(
                                 formatTime(duration),
                                 color = Color.White.copy(alpha = 0.55f),
