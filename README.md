@@ -2,24 +2,31 @@
 
 > 一个本地的图片和视频阅读器，基于 Jetpack Compose + Material 3 构建。
 > A local image & video reader built with Jetpack Compose and Material 3.
-
+>
 ## Features
 
-- **文件夹浏览** — 自动扫描设备存储，按文件夹分组展示图片和视频
+- **文件夹分类浏览** — TabRow 横向标签切换图片/视频，自动扫描设备存储
 - **双模式阅读器**
-  - **滚动模式** (ContinuousScroll) — 上下连续滚动，适合长图/漫画
+  - **滚动模式** (ContinuousScroll) — 上下连续滚动，适合长图/漫画，图片居中显示
   - **翻页模式** (Pager) — 左右翻页，逐页浏览
-  - 支持双指缩放、双击复位、滑块导航
-- **视频播放器** — ExoPlayer (Media3)，沉浸模式，双击快进/快退 (±10s)，长按 3 倍速
-- **全局搜索** — 防抖输入，跨文件夹搜索
-- **混合媒体引擎** — 双阶段扫描：先展示 MediaStore 结果，后台 FileTreeWalk 补充未索引文件
+  - 支持双指缩放、双击复位、进度滑块导航
+- **视频播放器** — ExoPlayer (Media3) 极简自定义控件层
+  - 沉浸模式全屏播放
+  - 双击左侧/右侧快退/快进 ±10s
+  - 长按 3 倍速播放
+  - 播放按钮位于底部进度条左侧，不遮挡画面
+  - 自定义视频帧解码器 (VideoFrameDecoder) 用于缩略图
+- **混合媒体引擎** — 双阶段扫描：先展示 MediaStore 结果，后台 FileTreeWalk 补充未索引文件 (jpg/png/webp/heic/avif/mp4/mkv/...)
+- **全局搜索** — 防抖输入，跨文件夹搜索图片和视频
 - **排序持久化** — 按名称/日期/大小排序，支持升序/降序，DataStore 持久化
 - **主题切换** — 亮色 / 暗色 / 纯黑 (AMOLED) 三模式
+- **冷启动秒开** — JSON 缓存文件夹列表和 .nomedia 扫描结果
+- **性能优化**
+  - Coil 三级缓存 + Precision.EXACT + Generation ID 并发控制
+  - 自定义视频帧解码器避免 MediaMetadataRetriever 同步解码卡顿
+  - 双槽视频预加载 + 零延迟退出的 SurfaceView 管理
+- **滑块三态锁** — isDragged + isScrolling + isUserInteracting 防反馈环
 - **无 DI 框架** — 手动 ViewModel Factory，轻量简洁
-
-## Screenshots
-
-<!-- TODO: Add screenshots -->
 
 ## Tech Stack
 
@@ -27,12 +34,13 @@
 |---|---|
 | Language | Kotlin 2.0.0 |
 | UI | Jetpack Compose (BOM 2025.03.00) + Material 3 |
-| Architecture | MVVM (ViewModel + StateFlow) |
+| Architecture | MVVM (ViewModel + `StateFlow`) |
 | Navigation | Navigation Compose 2.7.7 |
-| Image Loading | Coil 2.6.0 (coil-compose, coil-video) |
+| Image Loading | Coil 2.6.0 (coil-compose, coil-video, `VideoFrameDecoder`) |
 | Video Playback | Media3 ExoPlayer 1.3.1 |
 | Storage | DataStore Preferences 1.1.1 |
 | Build | Gradle 8.7 + AGP 8.4.0 |
+| CI | GitHub Actions + 自托管 Windows Runner + Claude Code |
 | Testing | JUnit 4, Turbine 1.1.0, kotlinx-coroutines-test |
 | Min SDK | 26 |
 | Target SDK | 34 |
