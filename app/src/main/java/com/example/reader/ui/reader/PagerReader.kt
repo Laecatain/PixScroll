@@ -30,6 +30,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import coil.size.Size
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import com.example.reader.data.model.MediaItem
 import com.example.reader.ui.theme.ThemeState
 import kotlin.math.abs
@@ -52,6 +58,10 @@ fun PagerReader(
     val safeInitial = initialIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
     val pagerState = rememberPagerState(initialPage = safeInitial) { mediaItems.size }
     val scope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
 
     val isZoomed = scale > 1f
     val totalCount = mediaItems.size
@@ -133,14 +143,24 @@ fun PagerReader(
         ) { page ->
             val item = mediaItems[page]
             if (item.isVideo) {
-                PagerVideoItem(item = item, onClick = { onVideoClick(item) })
+                PagerVideoItem(item = item, onClick = { onVideoClick(item) }, screenWidthPx = screenWidthPx, screenHeightPx = screenHeightPx)
             } else {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
+                    val context = LocalContext.current
+                    val model = remember(item.uri, screenWidthPx, screenHeightPx) {
+                        ImageRequest.Builder(context)
+                            .data(item.uri)
+                            .size(Size(screenWidthPx.toInt(), screenHeightPx.toInt()))
+                            .crossfade(150)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build()
+                    }
                     AsyncImage(
-                        model = item.uri,
+                        model = model,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit
@@ -261,7 +281,17 @@ private fun androidx.compose.ui.input.pointer.PointerEvent.panChange(): Offset {
 }
 
 @Composable
-private fun PagerVideoItem(item: MediaItem, onClick: () -> Unit) {
+private fun PagerVideoItem(item: MediaItem, onClick: () -> Unit, screenWidthPx: Float, screenHeightPx: Float) {
+    val context = LocalContext.current
+    val model = remember(item.uri, screenWidthPx, screenHeightPx) {
+        ImageRequest.Builder(context)
+            .data(item.uri)
+            .size(Size(screenWidthPx.toInt(), screenHeightPx.toInt()))
+            .crossfade(150)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .build()
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -269,7 +299,7 @@ private fun PagerVideoItem(item: MediaItem, onClick: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         AsyncImage(
-            model = item.uri,
+            model = model,
             contentDescription = item.name,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Fit

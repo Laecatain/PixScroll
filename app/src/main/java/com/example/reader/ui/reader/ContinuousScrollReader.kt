@@ -32,6 +32,10 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import coil.size.Size
+import androidx.compose.ui.platform.LocalContext
 import com.example.reader.data.model.MediaItem
 import com.example.reader.ui.theme.ThemeState
 import kotlin.math.abs
@@ -232,9 +236,9 @@ fun ContinuousScrollReader(
                 contentType = { _, item -> if (item.isVideo) "video" else "image" }
             ) { _, item ->
                 if (item.isVideo) {
-                    VideoThumbnail(item = item, onClick = { onVideoClick(item) })
+                    VideoThumbnail(item = item, onClick = { onVideoClick(item) }, screenWidthPx = screenWidthPx)
                 } else {
-                    ImageWithAspectPlaceholder(item = item)
+                    ImageWithAspectPlaceholder(item = item, screenWidthPx = screenWidthPx)
                 }
             }
         }
@@ -337,8 +341,18 @@ private fun calculateCenteringOffset(
 }
 
 @Composable
-private fun ImageWithAspectPlaceholder(item: MediaItem) {
+private fun ImageWithAspectPlaceholder(item: MediaItem, screenWidthPx: Float) {
     val ratio = if (item.aspectRatio > 0f) item.aspectRatio else DEFAULT_ASPECT_RATIO
+    val context = LocalContext.current
+    val model = remember(item.uri, screenWidthPx) {
+        ImageRequest.Builder(context)
+            .data(item.uri)
+            .size(screenWidthPx.toInt())
+            .crossfade(150)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .build()
+    }
     Box(
         modifier = Modifier.fillMaxWidth().aspectRatio(ratio),
         contentAlignment = Alignment.Center
@@ -346,9 +360,9 @@ private fun ImageWithAspectPlaceholder(item: MediaItem) {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-        ) { /* 占位 */ }
+        ) { /* placeholder */ }
         AsyncImage(
-            model = item.uri, contentDescription = null,
+            model = model, contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.FillWidth
         )
@@ -383,12 +397,22 @@ private fun PointerEvent.panChange(): Offset {
 // ═══════════════════════════════════ 视频缩略图 ═══════════════════════════════════
 
 @Composable
-private fun VideoThumbnail(item: MediaItem, onClick: () -> Unit) {
+private fun VideoThumbnail(item: MediaItem, onClick: () -> Unit, screenWidthPx: Float) {
+    val context = LocalContext.current
+    val model = remember(item.uri, screenWidthPx) {
+        ImageRequest.Builder(context)
+            .data(item.uri)
+            .size(screenWidthPx.toInt())
+            .crossfade(150)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .build()
+    }
     Box(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        AsyncImage(model = item.uri, contentDescription = item.name,
+        AsyncImage(model = model, contentDescription = item.name,
             modifier = Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
         Surface(shape = MaterialTheme.shapes.extraLarge,
             color = Color.Black.copy(alpha = 0.6f), modifier = Modifier.size(56.dp)
