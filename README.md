@@ -1,7 +1,7 @@
-﻿# 阅读器 / Reader
+﻿# PixScroll
 
-> 一个本地的图片和视频阅读器，基于 Jetpack Compose + Material 3 构建。
-> A local image & video reader built with Jetpack Compose and Material 3.
+> **像素滚动** — 图片在指尖无缝流淌，一滑到底的本地媒体阅读器。
+> **Pixel + Scroll** — your images flow seamlessly, a local media reader with zero friction.
 >
 ## Features
 

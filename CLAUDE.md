@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Build + install to phone (auto-detects device, falls back to build-only)
-bash /e/playground/install.sh
+bash /e/PixScroll/install.sh
 
 # Build only (use gradlew if available, else gradle directly)
 ./gradlew assembleDebug
