@@ -37,6 +37,8 @@ interface MediaRepository {
     ): Flow<List<MediaItem>>
 
     fun searchMedia(query: String): Flow<List<MediaItem>>
+
+    fun searchFolders(query: String): Flow<List<MediaFolder>>
 }
 
 private val IMAGE_EXTENSIONS = setOf(
@@ -241,26 +243,49 @@ class AndroidMediaRepository(
             emit(emptyList())
             return@flow
         }
-        val selection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
-                " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0" +
-                " AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?"
-        } else {
-            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
-                " AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?"
-        }
-        val selectionArgs = arrayOf(
+
+        val selection = StringBuilder(
+            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
+        )
+        val selectionArgs = mutableListOf(
             MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
-            MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString(),
-            "%$query%"
+            MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString()
         )
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            selection.append(" AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0")
+        }
+
+        val hiddenParents = getHiddenFolderParentIds()
+        if (hiddenParents.isNotEmpty()) {
+            val placeholders = hiddenParents.joinToString(",") { "?" }
+            selection.append(" AND ${MediaStore.Files.FileColumns.PARENT} NOT IN ($placeholders)")
+            selectionArgs.addAll(hiddenParents.map { it.toString() })
+        }
+
+        selection.append(" AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?")
+        selectionArgs.add("%$query%")
+
         val cursor = contentResolver.query(
-            unifiedUri, fileProjection, selection, selectionArgs,
+            unifiedUri, fileProjection, selection.toString(), selectionArgs.toTypedArray(),
             "${MediaStore.Files.FileColumns.DATE_TAKEN} DESC"
         )
 
         emit(readMediaItemsFromCursor(cursor))
+    }.flowOn(Dispatchers.IO)
+
+    override fun searchFolders(query: String): Flow<List<MediaFolder>> = flow {
+        val trimmedQuery = query.trim()
+        if (trimmedQuery.isEmpty()) {
+            emit(emptyList())
+            return@flow
+        }
+
+        getAllFolders(SortMode.DATE, SortOrder.DESC, includeHidden = false).collect { folders ->
+            emit(folders.filter { folder ->
+                folder.folderName.contains(trimmedQuery, ignoreCase = true)
+            })
+        }
     }.flowOn(Dispatchers.IO)
 
     // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â

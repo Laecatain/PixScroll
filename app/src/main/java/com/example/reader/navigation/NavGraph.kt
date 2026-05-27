@@ -1,6 +1,7 @@
 ﻿package com.example.reader.navigation
 
 import android.net.Uri
+import android.provider.MediaStore
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -69,12 +70,13 @@ fun NavGraph(navController: NavHostController) {
             )
         ) { backStackEntry ->
             val parentId = backStackEntry.arguments?.getLong("parentId") ?: return@composable
-            val mediaType = backStackEntry.arguments?.getInt("type") ?: 0
+            val rawMediaType = backStackEntry.arguments?.getInt("type") ?: 0
+            val mediaType = rawMediaType.takeIf { it != 0 }
             MediaGridScreen(
                 parentId = parentId,
                 mediaType = mediaType,
                 onImageClick = { index ->
-                    navController.navigate(Routes.reader(parentId, index, mediaType))
+                    navController.navigate(Routes.reader(parentId, index, rawMediaType))
                 },
                 onVideoClick = { path, thumbnailPath ->
                     navController.navigate(Routes.videoPlayer(path, thumbnailPath))
@@ -93,7 +95,8 @@ fun NavGraph(navController: NavHostController) {
         ) { backStackEntry ->
             val parentId = backStackEntry.arguments?.getLong("parentId") ?: return@composable
             val initialIndex = backStackEntry.arguments?.getInt("initialIndex") ?: 0
-            val mediaType = backStackEntry.arguments?.getInt("type") ?: 0
+            val rawMediaType = backStackEntry.arguments?.getInt("type") ?: 0
+            val mediaType = rawMediaType.takeIf { it != 0 }
             ReaderScreen(
                 parentId = parentId,
                 initialIndex = initialIndex,
@@ -132,8 +135,17 @@ fun NavGraph(navController: NavHostController) {
 
         composable(Routes.SEARCH) {
             SearchScreen(
+                onFolderClick = { folder ->
+                    navController.navigate(Routes.mediaGrid(folder.id, 0))
+                },
                 onImageClick = { item ->
-                    navController.navigate(Routes.reader(item.parentId, 0))
+                    navController.navigate(
+                        Routes.reader(
+                            item.parentId,
+                            0,
+                            MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
+                        )
+                    )
                 },
                 onVideoClick = { item ->
                     item.uri?.let { uri ->

@@ -24,7 +24,7 @@ import com.example.reader.data.model.MediaItem
 fun ReaderScreen(
     parentId: Long,
     initialIndex: Int = 0,
-    mediaType: Int = 0,
+    mediaType: Int? = null,
     onBack: () -> Unit,
     onVideoClick: (MediaItem) -> Unit,
     viewModel: ReaderViewModel = viewModel(

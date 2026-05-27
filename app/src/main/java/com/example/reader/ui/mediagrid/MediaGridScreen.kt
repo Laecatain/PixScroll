@@ -51,7 +51,7 @@ import kotlinx.coroutines.runBlocking
 @Composable
 fun MediaGridScreen(
     parentId: Long,
-    mediaType: Int = 0,
+    mediaType: Int? = null,
     onImageClick: (index: Int) -> Unit,
     onVideoClick: (path: String, thumbnailPath: String?) -> Unit,
     onBack: () -> Unit,

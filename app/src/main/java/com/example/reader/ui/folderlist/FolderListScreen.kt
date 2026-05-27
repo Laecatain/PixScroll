@@ -7,7 +7,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
@@ -28,18 +27,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import com.example.reader.data.model.MediaFolder
-import com.example.reader.ui.common.AsyncGridImage
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
 import com.example.reader.ui.common.FastScroller
+import com.example.reader.ui.common.FolderGridCard
 import com.example.reader.ui.theme.ThemeState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -188,7 +183,7 @@ fun FolderListScreen(
                                     modifier = Modifier.fillMaxSize()
                                 ) {
                                     items(folders, key = { it.id }) { folder ->
-                                        FolderCard(folder = folder, onClick = { onFolderClick(folder, clickMediaType) })
+                                        FolderGridCard(folder = folder, onClick = { onFolderClick(folder, clickMediaType) })
                                     }
                                 }
                                 FastScroller(
@@ -200,46 +195,6 @@ fun FolderListScreen(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FolderCard(folder: MediaFolder, onClick: () -> Unit) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(0.85f),
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.weight(1f)) {
-                AsyncGridImage(
-                    uri = folder.coverImageUri,
-                    contentDescription = folder.folderName,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
-            Column(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = folder.folderName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${folder.mediaCount} 个媒体",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp
-                )
             }
         }
     }
