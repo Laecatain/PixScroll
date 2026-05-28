@@ -108,7 +108,7 @@ object PlayerPreloader {
                 hotSlot = Slot.Preparing(uri, current.player)
             }
             is Slot.Empty, is Slot.Consumed -> {
-                val player = ExoPlayer.Builder(context.applicationContext).build().apply {
+                val player = VideoPlayerFactory.create(context).apply {
                     setMediaItem(MediaItem.fromUri(newUri))
                     prepare()
                     playWhenReady = false

@@ -48,6 +48,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.reader.util.PlayerPreloader
 import com.example.reader.util.TakeResult
+import com.example.reader.util.VideoPlayerFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.io.File
@@ -82,11 +83,12 @@ fun VideoPlayerScreen(
     fun displayPosition() = if (isDragging) sliderPosition else playerPosition
 
     // ── 播放器创建（三态 Take） ──
-    val exoPlayer = remember(videoUri) {
-        val player = when (val result = PlayerPreloader.take(uriString)) {
+    val session = remember(videoUri) {
+        val result = PlayerPreloader.take(uriString)
+        val player = when (result) {
             is TakeResult.Ready -> result.player
             is TakeResult.InProgress -> result.player
-            is TakeResult.Cold -> ExoPlayer.Builder(context.applicationContext).build().apply {
+            is TakeResult.Cold -> VideoPlayerFactory.create(context).apply {
                 setMediaItem(MediaItem.fromUri(videoUri))
                 prepare()
             }
@@ -99,8 +101,9 @@ fun VideoPlayerScreen(
             true
         )
         player.playWhenReady = true
-        player
+        VideoPlayerSession(player, result is TakeResult.Cold)
     }
+    val exoPlayer = session.player
 
     // ── 画面清除工具函数 ──
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
@@ -157,7 +160,13 @@ fun VideoPlayerScreen(
         onDispose {
             exoPlayer.removeListener(listener)
             clearPlayerSurface()
-            PlayerPreloader.notifyReleased(uriString)
+            if (session.ownsPlayer) {
+                exoPlayer.stop()
+                exoPlayer.clearMediaItems()
+                exoPlayer.release()
+            } else {
+                PlayerPreloader.notifyReleased(uriString)
+            }
         }
     }
 
@@ -486,6 +495,11 @@ fun VideoPlayerScreen(
         }
     }
 }
+
+private data class VideoPlayerSession(
+    val player: ExoPlayer,
+    val ownsPlayer: Boolean
+)
 
 private fun formatTime(ms: Long): String {
     val totalSeconds = ms / 1000
