@@ -14,6 +14,7 @@ import com.example.reader.data.repository.MediaRepository
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
 import com.example.reader.util.FolderCache
+import com.example.reader.util.ThumbnailManager
 import com.example.reader.util.saveFolderSortMode
 import com.example.reader.util.saveFolderSortOrder
 import com.example.reader.util.settingsFlow
@@ -48,6 +49,9 @@ class FolderListViewModel(
 
     private val _state: MutableStateFlow<FolderUiState>
     val state: StateFlow<FolderUiState>
+
+    private val thumbnailManager = application?.let { ThumbnailManager(it) }
+
 
     val imageFolders: StateFlow<List<MediaFolder>>
     val videoFolders: StateFlow<List<MediaFolder>>
@@ -149,6 +153,7 @@ class FolderListViewModel(
                     .onEach { folders ->
                         Log.d(TAG, "Flow.onEach: ${folders.size} 个文件夹 [thread=${Thread.currentThread().name}]")
                         _state.value = FolderUiState.Success(folders)
+                        refreshCoverThumbnailCache(folders)
                     }
                     .onCompletion { cause ->
                         Log.d(TAG, "Flow.onCompletion [thread=${Thread.currentThread().name}] cause=$cause")
@@ -159,6 +164,56 @@ class FolderListViewModel(
             } catch (e: Exception) {
                 Log.e(TAG, "Flow 异常: ${e.message}", e)
                 _state.value = FolderUiState.Error(e.message ?: "加载失败")
+            }
+        }
+    }
+
+    private fun refreshCoverThumbnailCache(folders: List<MediaFolder>) {
+        val app = application ?: return
+        val videoFolders = folders.filter { folder ->
+            folder.coverIsVideo &&
+                folder.coverPath.isNotEmpty() &&
+                folder.coverThumbnailPath == null
+        }
+        if (videoFolders.isEmpty()) return
+
+        val videoFolderIds = videoFolders.map { it.id }.toSet()
+
+        viewModelScope.launch {
+            val thumbnailManager = ThumbnailManager(app)
+            val updatedFolders = folders.map { folder ->
+                if (folder.id in videoFolderIds) {
+                    val thumbnail = thumbnailManager.generateThumbnail(
+                        folder.coverPath,
+                        folder.coverDateModified,
+                        folder.coverSize
+                    )
+                    if (thumbnail != null) {
+                        folder.copy(coverThumbnailPath = thumbnail.absolutePath)
+                    } else {
+                        folder
+                    }
+                } else {
+                    folder
+                }
+            }
+            if (updatedFolders != folders) {
+                val currentState = _state.value
+                if (currentState is FolderUiState.Success) {
+                    val thumbnailsById = updatedFolders.associate { folder ->
+                        folder.id to folder.coverThumbnailPath
+                    }
+                    val currentFolders = currentState.folders.map { folder ->
+                        val thumbnailPath = thumbnailsById[folder.id]
+                        if (folder.coverThumbnailPath == null && thumbnailPath != null) {
+                            folder.copy(coverThumbnailPath = thumbnailPath)
+                        } else {
+                            folder
+                        }
+                    }
+                    _state.value = FolderUiState.Success(currentFolders)
+                    FolderCache.saveFolders(app.cacheDir, currentFolders)
+                }
             }
         }
     }

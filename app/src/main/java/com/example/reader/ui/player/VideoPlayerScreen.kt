@@ -82,6 +82,8 @@ fun VideoPlayerScreen(
     var isDragging by remember { mutableStateOf(false) }
     fun displayPosition() = if (isDragging) sliderPosition else playerPosition
 
+    val skipSeekThresholdMs = 300L
+
     // ── 播放器创建（三态 Take） ──
     val session = remember(videoUri) {
         val result = PlayerPreloader.take(uriString)
@@ -104,6 +106,21 @@ fun VideoPlayerScreen(
         VideoPlayerSession(player, result is TakeResult.Cold)
     }
     val exoPlayer = session.player
+
+    fun seekFast(targetMs: Long) {
+        val boundedDuration = duration.coerceAtLeast(0L)
+        val target = targetMs.coerceIn(0L, boundedDuration)
+        val currentPosition = exoPlayer.currentPosition.coerceAtLeast(0L)
+
+        if (kotlin.math.abs(target - currentPosition) < skipSeekThresholdMs) return
+
+        playerPosition = target
+        sliderPosition = target
+        exoPlayer.seekTo(target)
+        if (exoPlayer.playbackState == Player.STATE_BUFFERING) {
+            isBuffering = true
+        }
+    }
 
     // ── 画面清除工具函数 ──
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
@@ -330,10 +347,7 @@ fun VideoPlayerScreen(
                         onDoubleTap = { offset ->
                             val isRightSide = offset.x > size.width / 2f
                             val seekAmount = if (isRightSide) 10000L else -10000L
-                            val target = (playerPosition + seekAmount)
-                                .coerceIn(0, duration)
-                            exoPlayer.seekTo(target)
-                            playerPosition = target
+                            seekFast(playerPosition + seekAmount)
                             isControlVisible = true
                         },
                         onLongPress = {
@@ -477,8 +491,7 @@ fun VideoPlayerScreen(
                                 isControlVisible = true
                             },
                             onValueChangeFinished = {
-                                exoPlayer.seekTo(sliderPosition)
-                                playerPosition = sliderPosition // 乐观更新，避免 seek 确认前的回弹
+                                seekFast(sliderPosition)
                                 isDragging = false
                             },
                             valueRange = 0f..duration.toFloat().coerceAtLeast(1f),

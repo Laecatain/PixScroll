@@ -126,12 +126,21 @@ class AndroidMediaRepository(
             val dataCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATA)
             val dateCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATE_TAKEN)
             val mimeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE)
+            val mediaTypeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
+            val sizeCol = it.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
+            val dateModifiedCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATE_MODIFIED)
 
             while (it.moveToNext()) {
                 val parent = if (parentCol >= 0) it.getLong(parentCol) else continue
                 val data = if (dataCol >= 0) it.getString(dataCol) ?: "" else ""
                 val fileId = if (idCol >= 0) it.getLong(idCol) else continue
-                val mime = if (mimeCol >= 0) it.getString(mimeCol) ?: "" else ""
+                val rawMime = if (mimeCol >= 0) it.getString(mimeCol) ?: "" else ""
+                val mediaType = if (mediaTypeCol >= 0) it.getInt(mediaTypeCol) else 0
+                val mime = normalizeMimeType(rawMime, mediaType)
+                val isImage = mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE || mime.startsWith("image/")
+                val isVideo = mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO || mime.startsWith("video/")
+                val size = if (sizeCol >= 0) it.getLong(sizeCol) else 0L
+                val dateModified = if (dateModifiedCol >= 0) it.getLong(dateModifiedCol) else 0L
 
                 val acc = folderMap.getOrPut(parent) {
                     val bucket = if (bucketCol >= 0) it.getString(bucketCol) ?: "Unknown" else "Unknown"
@@ -141,21 +150,28 @@ class AndroidMediaRepository(
                         folderName = bucket,
                         folderPath = folderPath,
                         coverId = fileId,
-                        coverIsVideo = mime.startsWith("video/"),
+                        coverMimeType = mime,
+                        coverPath = data,
+                        coverDateModified = dateModified,
+                        coverSize = size,
                         mediaCount = 0,
                         maxDate = 0L
                     )
                 }
 
                 acc.mediaCount++
-                if (mime.startsWith("image/")) acc.hasImage = true
-                if (mime.startsWith("video/")) acc.hasVideo = true
+                if (isImage) acc.hasImage = true
+                if (isVideo) acc.hasVideo = true
                 val dateTaken = if (dateCol >= 0) it.getLong(dateCol) else 0L
                 if (dateTaken > acc.maxDate) acc.maxDate = dateTaken
 
-                if (acc.coverIsVideo && !mime.startsWith("video/")) {
+                if (acc.coverMimeType.startsWith("video/") && isImage) {
                     acc.coverId = fileId
-                    acc.coverIsVideo = false
+                    acc.coverMimeType = mime
+                    acc.coverPath = data
+                    acc.coverDateModified = dateModified
+                    acc.coverSize = size
+                    acc.coverThumbnailPath = null
                 }
             }
         }
@@ -173,7 +189,12 @@ class AndroidMediaRepository(
                 coverImageUri = ContentUris.withAppendedId(unifiedUri, acc.coverId),
                 mediaCount = acc.mediaCount,
                 hasImages = acc.hasImage,
-                hasVideos = acc.hasVideo
+                hasVideos = acc.hasVideo,
+                coverMimeType = acc.coverMimeType,
+                coverPath = acc.coverPath,
+                coverDateModified = acc.coverDateModified,
+                coverSize = acc.coverSize,
+                coverThumbnailPath = acc.coverThumbnailPath
             )
         }.let { list ->
             when (sortMode) {
@@ -497,6 +518,15 @@ class AndroidMediaRepository(
         return items
     }
 
+    private fun normalizeMimeType(mime: String, mediaType: Int): String {
+        if (mime.isNotEmpty()) return mime
+        return when (mediaType) {
+            MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE -> "image/*"
+            MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO -> "video/*"
+            else -> ""
+        }
+    }
+
     private fun estimateMimeType(ext: String): String = when (ext) {
         "jpg", "jpeg" -> "image/jpeg"
         "png" -> "image/png"
@@ -612,7 +642,11 @@ class AndroidMediaRepository(
         val folderName: String,
         val folderPath: String,
         var coverId: Long,
-        var coverIsVideo: Boolean,
+        var coverMimeType: String,
+        var coverPath: String,
+        var coverDateModified: Long,
+        var coverSize: Long,
+        var coverThumbnailPath: String? = null,
         var mediaCount: Int,
         var maxDate: Long,
         var hasImage: Boolean = false,

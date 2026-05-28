@@ -77,7 +77,7 @@ fun AsyncGridImage(
                 .crossfade(100)
                 .placeholder(PLACEHOLDER_DRAWABLE)
                 .build()
-        } else if (item.isVideo && thumbnailManager != null) {
+        } else if (item.isVideo && thumbnailManager != null && item.folderPath.isNotBlank()) {
             // 视频无缓存：Coil VideoFrameDecoder 实时抽帧 → 写回 L2
             ImageRequest.Builder(context)
                 .data(item.uri)
@@ -90,7 +90,9 @@ fun AsyncGridImage(
                         val file = thumbnailManager.getThumbFile(
                             item.folderPath, item.dateModified, item.size
                         )
-                        thumbnailManager.save(drawable.bitmap, file)
+                        if (!file.exists()) {
+                            thumbnailManager.save(drawable.bitmap, file)
+                        }
                     }
                 })
                 .build()

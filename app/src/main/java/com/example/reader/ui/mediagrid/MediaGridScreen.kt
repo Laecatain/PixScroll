@@ -15,13 +15,11 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -84,20 +82,6 @@ fun MediaGridScreen(
     // ── 清理预热：离开 Grid 时释放未取走的预热播放器 ──
     DisposableEffect(Unit) {
         onDispose { PlayerPreloader.release() }
-    }
-
-    // 视频缩略图预暖：仅在首次加载时触发一次（key=parentId 避免 Phase 2 更新时重启）
-    val hasWarmed = remember { mutableStateOf(false) }
-    LaunchedEffect(parentId) {
-        if (hasWarmed.value) return@LaunchedEffect
-        hasWarmed.value = true
-        state.mediaItems
-            .filter { it.isVideo }
-            .forEach { video ->
-                launch {
-                    thumbnailManager.generateThumbnail(video.folderPath, video.dateModified, video.size)
-                }
-            }
     }
 
     val gridColumns = remember {

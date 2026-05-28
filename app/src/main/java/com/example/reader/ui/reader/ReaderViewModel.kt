@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -52,7 +53,7 @@ class ReaderViewModel(
 
     // ── Generation ID Ticket System ──
     private var mediaLoadJob: Job? = null
-    private var currentGeneration = 0
+    @Volatile private var currentGeneration = 0
     @Volatile private var isFrozen = false
 
     private val thumbnailManager: ThumbnailManager? = application?.let { ThumbnailManager(it) }
@@ -181,34 +182,65 @@ class ReaderViewModel(
                 return@launch
             }
 
-            // ── Phase 2: 异步批量更新 thumbnailPath ──
             val mgr = thumbnailManager ?: return@launch
-            val currentItems = _state.value.mediaItems
-            if (currentItems.isEmpty()) return@launch
+            updateVideoThumbnails(myGeneration, mgr)
+        }
+    }
 
-            withContext(Dispatchers.IO) {
-                // 用 withIndex 保留原始索引，直接通过索引更新，避免脆弱的下标匹配
-                currentItems.withIndex().chunked(5).forEach { chunk ->
-                    // 代际检查：如果已过期则静默退出
-                    if (myGeneration != currentGeneration || isFrozen) return@withContext
+    private suspend fun updateVideoThumbnails(generation: Int, mgr: ThumbnailManager) {
+        val videoItems = _state.value.mediaItems
+            .withIndex()
+            .filter { (_, item) ->
+                item.isVideo && item.thumbnailPath == null && item.folderPath.isNotBlank()
+            }
 
-                    var changed = false
-                    val updatedList = _state.value.mediaItems.toMutableList()
+        withContext(Dispatchers.IO) {
+            videoItems.chunked(5).forEach { chunk ->
+                if (generation != currentGeneration || isFrozen) return@withContext
 
-                    for ((originalIndex, item) in chunk) {
-                        if (item.isVideo && mgr.exists(item.folderPath, item.dateModified, item.size)) {
-                            val thumbFile = mgr.getThumbFile(item.folderPath, item.dateModified, item.size)
-                            updatedList[originalIndex] = item.copy(thumbnailPath = thumbFile.absolutePath)
-                            changed = true
-                        }
-                    }
+                val generated = chunk.mapNotNull { (originalIndex, item) ->
+                    val thumbFile = mgr.generateThumbnail(item.folderPath, item.dateModified, item.size)
+                        ?: return@mapNotNull null
+                    ThumbnailUpdate(originalIndex, item, thumbFile.absolutePath)
+                }
 
-                    if (changed) {
-                        _state.value = _state.value.copy(mediaItems = updatedList)
-                    }
+                if (generated.isNotEmpty()) {
+                    applyThumbnailUpdates(generation, generated)
                 }
             }
         }
+    }
+
+    private fun applyThumbnailUpdates(generation: Int, updates: List<ThumbnailUpdate>) {
+        _state.update { current ->
+            if (generation != currentGeneration || isFrozen) return@update current
+
+            val updatedItems = current.mediaItems.toMutableList()
+            var changed = false
+
+            updates.forEach { update ->
+                val currentItem = updatedItems.getOrNull(update.index)
+                if (currentItem != null && currentItem.isSameIdentity(update.sourceItem)) {
+                    updatedItems[update.index] = currentItem.copy(thumbnailPath = update.thumbnailPath)
+                    changed = true
+                }
+            }
+
+            if (changed) current.copy(mediaItems = updatedItems) else current
+        }
+    }
+
+    private data class ThumbnailUpdate(
+        val index: Int,
+        val sourceItem: MediaItem,
+        val thumbnailPath: String
+    )
+
+    private fun MediaItem.isSameIdentity(other: MediaItem): Boolean {
+        return uri == other.uri &&
+            folderPath == other.folderPath &&
+            dateModified == other.dateModified &&
+            size == other.size
     }
 
     fun setCurrentIndex(index: Int) {

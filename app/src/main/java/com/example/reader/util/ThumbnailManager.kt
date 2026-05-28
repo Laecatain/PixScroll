@@ -23,9 +23,11 @@ import java.security.MessageDigest
  * - API 26:  getFrameAtTime + 手动 scaleToMaxDimension（回退）
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-class ThumbnailManager(private val context: Context) {
+class ThumbnailManager internal constructor(private val thumbDir: File) {
 
-    private val thumbDir = File(context.cacheDir, "thumbnails").apply { mkdirs() }
+    constructor(context: Context) : this(
+        File(context.cacheDir, "thumbnails").apply { mkdirs() }
+    )
 
     companion object {
         private const val THUMB_QUALITY = 80

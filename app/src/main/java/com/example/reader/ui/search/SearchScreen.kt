@@ -172,7 +172,11 @@ fun SearchScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(state.folderResults, key = { it.id }) { folder ->
-                        FolderGridCard(folder = folder, onClick = { onFolderClick(folder) })
+                        FolderGridCard(
+                            folder = folder,
+                            thumbnailManager = thumbnailManager,
+                            onClick = { onFolderClick(folder) }
+                        )
                     }
                 }
             }

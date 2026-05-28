@@ -18,9 +18,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.reader.data.model.MediaFolder
+import com.example.reader.data.model.MediaItem
+import com.example.reader.util.ThumbnailManager
 
 @Composable
-fun FolderGridCard(folder: MediaFolder, onClick: () -> Unit) {
+fun FolderGridCard(
+    folder: MediaFolder,
+    onClick: () -> Unit,
+    thumbnailManager: ThumbnailManager? = null
+) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -31,12 +37,22 @@ fun FolderGridCard(folder: MediaFolder, onClick: () -> Unit) {
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f)) {
-                AsyncGridImage(
-                    uri = folder.coverImageUri,
-                    contentDescription = folder.folderName,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
+                if (folder.coverIsVideo && folder.coverPath.isNotEmpty()) {
+                    AsyncGridImage(
+                        item = folder.toCoverMediaItem(),
+                        contentDescription = folder.folderName,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                        thumbnailManager = thumbnailManager
+                    )
+                } else {
+                    AsyncGridImage(
+                        uri = folder.coverImageUri,
+                        contentDescription = folder.folderName,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
             }
             Column(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
@@ -57,4 +73,17 @@ fun FolderGridCard(folder: MediaFolder, onClick: () -> Unit) {
             }
         }
     }
+}
+
+private fun MediaFolder.toCoverMediaItem(): MediaItem {
+    return MediaItem(
+        uri = coverImageUri,
+        name = folderName,
+        mimeType = coverMimeType,
+        size = coverSize,
+        dateModified = coverDateModified,
+        folderPath = coverPath,
+        parentId = id,
+        thumbnailPath = coverThumbnailPath
+    )
 }

@@ -36,6 +36,7 @@ import com.example.reader.data.repository.SortOrder
 import com.example.reader.ui.common.FastScroller
 import com.example.reader.ui.common.FolderGridCard
 import com.example.reader.ui.theme.ThemeState
+import com.example.reader.util.ThumbnailManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +50,8 @@ fun FolderListScreen(
 ) {
     val state by viewModel.state.collectAsState()
     var showSortMenu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val thumbnailManager = remember { ThumbnailManager(context) }
 
     Scaffold(
         topBar = {
@@ -183,7 +186,11 @@ fun FolderListScreen(
                                     modifier = Modifier.fillMaxSize()
                                 ) {
                                     items(folders, key = { it.id }) { folder ->
-                                        FolderGridCard(folder = folder, onClick = { onFolderClick(folder, clickMediaType) })
+                                        FolderGridCard(
+                                            folder = folder,
+                                            thumbnailManager = thumbnailManager,
+                                            onClick = { onFolderClick(folder, clickMediaType) }
+                                        )
                                     }
                                 }
                                 FastScroller(
