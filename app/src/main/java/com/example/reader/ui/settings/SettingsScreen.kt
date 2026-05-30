@@ -38,10 +38,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("设置") },
+                title = { Text("settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "back")
                     }
                 }
             )
@@ -55,21 +55,21 @@ fun SettingsScreen(
                 .background(MaterialTheme.colorScheme.background)
         ) {
             // Theme section
-            SettingsSectionHeader("主题模式")
-            ThemeOption("浅色", ThemeState.ThemeMode.LIGHT, state.themeMode) {
+            SettingsSectionHeader("theme")
+            ThemeOption("light", ThemeState.ThemeMode.LIGHT, state.themeMode) {
                 viewModel.setThemeMode(it)
             }
-            ThemeOption("深色", ThemeState.ThemeMode.DARK, state.themeMode) {
+            ThemeOption("dark", ThemeState.ThemeMode.DARK, state.themeMode) {
                 viewModel.setThemeMode(it)
             }
-            ThemeOption("AMOLED 黑色", ThemeState.ThemeMode.AMOLED_BLACK, state.themeMode) {
+            ThemeOption("AMOLED black", ThemeState.ThemeMode.AMOLED_BLACK, state.themeMode) {
                 viewModel.setThemeMode(it)
             }
 
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
-            // Folder sort section
-            SettingsSectionHeader("首页排序")
+            // Home folder sort
+            SettingsSectionHeader("home sort")
             SortModePicker(
                 currentMode = state.folderSortMode,
                 currentOrder = state.folderSortOrder,
@@ -82,24 +82,38 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
-            // Media sort section
-            SettingsSectionHeader("图片排序")
+            // Image folder sort
+            SettingsSectionHeader("image sort")
             SortModePicker(
-                currentMode = state.sortMode,
-                currentOrder = state.sortOrder,
-                onModeChange = { viewModel.setSortMode(it) },
+                currentMode = state.imageSortMode,
+                currentOrder = state.imageSortOrder,
+                onModeChange = { viewModel.setImageSortMode(it) },
                 onOrderToggle = {
-                    val newOrder = if (state.sortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
-                    viewModel.setSortOrder(newOrder)
+                    val newOrder = if (state.imageSortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
+                    viewModel.setImageSortOrder(newOrder)
+                }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+            // Video folder sort
+            SettingsSectionHeader("video sort")
+            SortModePicker(
+                currentMode = state.videoSortMode,
+                currentOrder = state.videoSortOrder,
+                onModeChange = { viewModel.setVideoSortMode(it) },
+                onOrderToggle = {
+                    val newOrder = if (state.videoSortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
+                    viewModel.setVideoSortOrder(newOrder)
                 }
             )
 
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
             // Grid columns
-            SettingsSectionHeader("网格列数")
+            SettingsSectionHeader("grid columns")
             ColumnPicker(
-                label = "每行列数",
+                label = "columns per row",
                 value = state.gridColumns,
                 options = listOf(3, 4, 5),
                 onSelect = { viewModel.setGridColumns(it) }
@@ -109,8 +123,8 @@ fun SettingsScreen(
 
             // About
             SettingsRow(
-                title = "关于",
-                subtitle = "版本信息与开源许可"
+                title = "about",
+                subtitle = "version and open source licenses"
             ) {
                 onAbout()
             }
@@ -159,9 +173,9 @@ private fun SortModePicker(
     onOrderToggle: () -> Unit
 ) {
     val modeNames = mapOf(
-        SortMode.NAME to "按名称",
-        SortMode.DATE to "按日期",
-        SortMode.SIZE to "按大小"
+        SortMode.NAME to "by name",
+        SortMode.DATE to "by date",
+        SortMode.SIZE to "by size"
     )
     Row(
         modifier = Modifier
@@ -169,11 +183,11 @@ private fun SortModePicker(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("排序方式", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        Text("sort by", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
         var expanded by androidx.compose.runtime.mutableStateOf(false)
         Box {
             TextButton(onClick = { expanded = true }) {
-                Text("${modeNames[currentMode]} ${if (currentOrder == SortOrder.DESC) "↓" else "↑"}")
+                Text("${modeNames[currentMode]} ${if (currentOrder == SortOrder.DESC) "\u2193" else "\u2191"}")
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 SortMode.entries.forEach { mode ->
@@ -188,7 +202,7 @@ private fun SortModePicker(
                 HorizontalDivider()
                 DropdownMenuItem(
                     text = {
-                        Text(if (currentOrder == SortOrder.DESC) "降序 ↓" else "升序 ↑")
+                        Text(if (currentOrder == SortOrder.DESC) "desc \u2193" else "asc \u2191")
                     },
                     onClick = { onOrderToggle(); expanded = false }
                 )

@@ -11,8 +11,10 @@ import com.example.reader.util.dataStore
 import com.example.reader.util.saveFolderSortMode
 import com.example.reader.util.saveFolderSortOrder
 import com.example.reader.util.saveGridColumns
-import com.example.reader.util.saveSortMode
-import com.example.reader.util.saveSortOrder
+import com.example.reader.util.saveImageSortMode
+import com.example.reader.util.saveImageSortOrder
+import com.example.reader.util.saveVideoSortMode
+import com.example.reader.util.saveVideoSortOrder
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,8 +23,10 @@ import kotlinx.coroutines.launch
 
 data class SettingsState(
     val themeMode: ThemeState.ThemeMode = ThemeState.ThemeMode.DARK,
-    val sortMode: SortMode = SortMode.DATE,
-    val sortOrder: SortOrder = SortOrder.DESC,
+    val imageSortMode: SortMode = SortMode.DATE,
+    val imageSortOrder: SortOrder = SortOrder.DESC,
+    val videoSortMode: SortMode = SortMode.DATE,
+    val videoSortOrder: SortOrder = SortOrder.DESC,
     val folderSortMode: SortMode = SortMode.DATE,
     val folderSortOrder: SortOrder = SortOrder.DESC,
     val gridColumns: Int = 3,
@@ -45,8 +49,10 @@ class SettingsViewModel(
             val prefs = application.dataStore.data.first()
             _state.value = SettingsState(
                 themeMode = ThemeState.themeMode,
-                sortMode = SortMode.valueOf(prefs[com.example.reader.util.PreferenceKeys.SORT_MODE] ?: "DATE"),
-                sortOrder = SortOrder.valueOf(prefs[com.example.reader.util.PreferenceKeys.SORT_ORDER] ?: "DESC"),
+                imageSortMode = SortMode.valueOf(prefs[com.example.reader.util.PreferenceKeys.IMAGE_SORT_MODE] ?: "DATE"),
+                imageSortOrder = SortOrder.valueOf(prefs[com.example.reader.util.PreferenceKeys.IMAGE_SORT_ORDER] ?: "DESC"),
+                videoSortMode = SortMode.valueOf(prefs[com.example.reader.util.PreferenceKeys.VIDEO_SORT_MODE] ?: "DATE"),
+                videoSortOrder = SortOrder.valueOf(prefs[com.example.reader.util.PreferenceKeys.VIDEO_SORT_ORDER] ?: "DESC"),
                 folderSortMode = SortMode.valueOf(prefs[com.example.reader.util.PreferenceKeys.FOLDER_SORT_MODE] ?: "DATE"),
                 folderSortOrder = SortOrder.valueOf(prefs[com.example.reader.util.PreferenceKeys.FOLDER_SORT_ORDER] ?: "DESC"),
                 gridColumns = prefs[com.example.reader.util.PreferenceKeys.GRID_COLUMNS] ?: 3,
@@ -61,18 +67,29 @@ class SettingsViewModel(
         _state.value = _state.value.copy(themeMode = mode)
     }
 
-    /** 媒体列表排序 */
-    fun setSortMode(mode: SortMode) {
-        _state.value = _state.value.copy(sortMode = mode)
-        viewModelScope.launch { application.saveSortMode(mode.name) }
+    /** image folder sort */
+    fun setImageSortMode(mode: SortMode) {
+        _state.value = _state.value.copy(imageSortMode = mode)
+        viewModelScope.launch { application.saveImageSortMode(mode.name) }
     }
 
-    fun setSortOrder(order: SortOrder) {
-        _state.value = _state.value.copy(sortOrder = order)
-        viewModelScope.launch { application.saveSortOrder(order.name) }
+    fun setImageSortOrder(order: SortOrder) {
+        _state.value = _state.value.copy(imageSortOrder = order)
+        viewModelScope.launch { application.saveImageSortOrder(order.name) }
     }
 
-    /** 首页文件夹排序 */
+    /** video folder sort */
+    fun setVideoSortMode(mode: SortMode) {
+        _state.value = _state.value.copy(videoSortMode = mode)
+        viewModelScope.launch { application.saveVideoSortMode(mode.name) }
+    }
+
+    fun setVideoSortOrder(order: SortOrder) {
+        _state.value = _state.value.copy(videoSortOrder = order)
+        viewModelScope.launch { application.saveVideoSortOrder(order.name) }
+    }
+
+    /** home folder sort */
     fun setFolderSortMode(mode: SortMode) {
         _state.value = _state.value.copy(folderSortMode = mode)
         viewModelScope.launch { application.saveFolderSortMode(mode.name) }

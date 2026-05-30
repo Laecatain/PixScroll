@@ -2,6 +2,8 @@ package com.example.reader.ui.reader
 
 import com.example.reader.data.model.MediaItem
 import com.example.reader.data.repository.FakeMediaRepository
+import com.example.reader.data.repository.SortMode
+import com.example.reader.data.repository.SortOrder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -27,7 +29,7 @@ class ReaderViewModelTest {
         MediaItem(null, "photo2.jpg", "image/jpeg", 2048, 2000, "/DCIM/Camera/photo2.jpg")
     )
 
-    // ── Basic load tests ──
+    // ?? Basic load tests ??
 
     @Test
     fun `emits media items on success`() {
@@ -68,24 +70,24 @@ class ReaderViewModelTest {
     @Test
     fun `load failure shows error state`() {
         val repo = FakeMediaRepository()
-        repo.mediaError = RuntimeException("读取失败")
+        repo.mediaError = RuntimeException("read failed")
         val vm = ReaderViewModel(repo, parentId = 1L)
 
         assertFalse(vm.state.value.isLoading)
-        assertEquals("读取失败", vm.state.value.error)
+        assertEquals("read failed", vm.state.value.error)
         assertTrue(vm.state.value.mediaItems.isEmpty())
     }
 
     @Test
     fun `cancellation exception not swallowed by error handler`() {
         val repo = FakeMediaRepository()
-        repo.mediaError = kotlinx.coroutines.CancellationException("ViewModel 已清除")
+        repo.mediaError = kotlinx.coroutines.CancellationException("ViewModel cleared")
         val vm = ReaderViewModel(repo, parentId = 1L)
         assertTrue(vm.state.value.isLoading)
         assertNull(vm.state.value.error)
     }
 
-    // ── setCurrentIndex tests ──
+    // ?? setCurrentIndex tests ??
 
     @Test
     fun `sets current index`() {
@@ -126,7 +128,7 @@ class ReaderViewModelTest {
 
         vm.setCurrentIndex(-1)
         assertEquals(-1, vm.state.value.currentIndex)
-        // ViewModel 层面不负责 clamp，clamp 在 UI 层 (SliderUtils.clampSliderTarget)
+        // ViewModel does not clamp; clamping is at UI layer (SliderUtils.clampSliderTarget)
     }
 
     @Test
@@ -139,11 +141,11 @@ class ReaderViewModelTest {
         assertEquals(1, vm.state.value.currentIndex)
 
         // Reload (triggered by sort change) shouldn't reset currentIndex
-        vm.setSortMode(com.example.reader.data.repository.SortMode.NAME)
+        vm.setSortMode(SortMode.NAME)
         assertEquals(1, vm.state.value.currentIndex)
     }
 
-    // ── initialIndex constructor tests ──
+    // ?? initialIndex constructor tests ??
 
     @Test
     fun `initialIndex set via constructor`() {
@@ -172,7 +174,7 @@ class ReaderViewModelTest {
         assertEquals(42, vm.state.value.currentIndex)
     }
 
-    // ── currentIndex preserved across mode switch ──
+    // ?? currentIndex preserved across mode switch ??
 
     @Test
     fun `currentIndex preserved when switching to pager`() {
@@ -198,7 +200,7 @@ class ReaderViewModelTest {
         assertEquals(1, vm.state.value.currentIndex)
     }
 
-    // ── Sort tests ──
+    // ?? Sort tests ??
 
     @Test
     fun `sort mode change reloads`() {
@@ -206,9 +208,9 @@ class ReaderViewModelTest {
         repo.mediaItems = mapOf(1L to testItems)
         val vm = ReaderViewModel(repo, parentId = 1L)
 
-        assertEquals(com.example.reader.data.repository.SortMode.DATE, vm.state.value.sortMode)
-        vm.setSortMode(com.example.reader.data.repository.SortMode.NAME)
-        assertEquals(com.example.reader.data.repository.SortMode.NAME, vm.state.value.sortMode)
+        assertEquals(SortMode.DATE, vm.state.value.sortMode)
+        vm.setSortMode(SortMode.NAME)
+        assertEquals(SortMode.NAME, vm.state.value.sortMode)
         assertFalse(vm.state.value.isLoading)
     }
 
@@ -218,10 +220,56 @@ class ReaderViewModelTest {
         repo.mediaItems = mapOf(1L to testItems)
         val vm = ReaderViewModel(repo, parentId = 1L)
 
-        assertEquals(com.example.reader.data.repository.SortOrder.DESC, vm.state.value.sortOrder)
+        assertEquals(SortOrder.DESC, vm.state.value.sortOrder)
         vm.toggleSortOrder()
-        assertEquals(com.example.reader.data.repository.SortOrder.ASC, vm.state.value.sortOrder)
+        assertEquals(SortOrder.ASC, vm.state.value.sortOrder)
         vm.toggleSortOrder()
-        assertEquals(com.example.reader.data.repository.SortOrder.DESC, vm.state.value.sortOrder)
+        assertEquals(SortOrder.DESC, vm.state.value.sortOrder)
+    }
+
+    // ?? Split sort: mediaType-driven tests ??
+
+    @Test
+    fun `image mediaType defaults sort correctly`() {
+        val repo = FakeMediaRepository()
+        repo.mediaItems = mapOf(1L to testItems)
+        val vm = ReaderViewModel(repo, parentId = 1L, mediaType = 1 /* IMAGE */)
+
+        assertFalse(vm.state.value.isLoading)
+        assertEquals(SortMode.DATE, vm.state.value.sortMode)
+        assertEquals(SortOrder.DESC, vm.state.value.sortOrder)
+    }
+
+    @Test
+    fun `video mediaType defaults sort correctly`() {
+        val repo = FakeMediaRepository()
+        repo.mediaItems = mapOf(1L to testItems)
+        val vm = ReaderViewModel(repo, parentId = 1L, mediaType = 3 /* VIDEO */)
+
+        assertFalse(vm.state.value.isLoading)
+        assertEquals(SortMode.DATE, vm.state.value.sortMode)
+        assertEquals(SortOrder.DESC, vm.state.value.sortOrder)
+    }
+
+    @Test
+    fun `image mediaType sort mode change`() {
+        val repo = FakeMediaRepository()
+        repo.mediaItems = mapOf(1L to testItems)
+        val vm = ReaderViewModel(repo, parentId = 1L, mediaType = 1 /* IMAGE */)
+
+        vm.setSortMode(SortMode.NAME)
+        assertEquals(SortMode.NAME, vm.state.value.sortMode)
+        assertFalse(vm.state.value.isLoading)
+    }
+
+    @Test
+    fun `video mediaType sort order toggle`() {
+        val repo = FakeMediaRepository()
+        repo.mediaItems = mapOf(1L to testItems)
+        val vm = ReaderViewModel(repo, parentId = 1L, mediaType = 3 /* VIDEO */)
+
+        assertEquals(SortOrder.DESC, vm.state.value.sortOrder)
+        vm.toggleSortOrder()
+        assertEquals(SortOrder.ASC, vm.state.value.sortOrder)
     }
 }
