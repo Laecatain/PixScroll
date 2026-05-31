@@ -254,10 +254,7 @@ class SearchIndex {
         if (snapshot.isEmpty()) return
         try {
             val json = encodeToCompactJson(snapshot)
-            val file = File(cacheDir, CACHE_FILE)
-            val tmp = File(cacheDir, "$CACHE_FILE.tmp")
-            tmp.writeText(json)
-            tmp.renameTo(file)
+            File(cacheDir, CACHE_FILE).writeText(json)
         } catch (_: Exception) { }
     }
 
