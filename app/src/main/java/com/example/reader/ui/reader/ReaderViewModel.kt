@@ -6,8 +6,8 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.reader.ReaderApp
 import com.example.reader.data.model.MediaItem
-import com.example.reader.data.repository.AndroidMediaRepository
 import com.example.reader.data.repository.MediaRepository
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
@@ -307,7 +307,7 @@ class ReaderViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             return ReaderViewModel(
-                AndroidMediaRepository(application.contentResolver),
+                (application as ReaderApp).mediaRepository,
                 parentId,
                 initialIndex,
                 application,

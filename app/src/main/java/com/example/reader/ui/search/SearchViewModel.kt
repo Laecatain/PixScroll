@@ -4,9 +4,9 @@ import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.reader.ReaderApp
 import com.example.reader.data.model.MediaFolder
 import com.example.reader.data.model.MediaItem
-import com.example.reader.data.repository.AndroidMediaRepository
 import com.example.reader.data.repository.MediaRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -125,7 +125,7 @@ class SearchViewModel(
     class Factory(private val application: Application) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return SearchViewModel(AndroidMediaRepository(application.contentResolver)) as T
+            return SearchViewModel((application as ReaderApp).mediaRepository) as T
         }
     }
 }

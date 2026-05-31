@@ -8,8 +8,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.reader.ReaderApp
 import com.example.reader.data.model.MediaFolder
-import com.example.reader.data.repository.AndroidMediaRepository
 import com.example.reader.data.repository.MediaRepository
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
@@ -239,7 +239,7 @@ class FolderListViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             return FolderListViewModel(
-                AndroidMediaRepository(application.contentResolver, application.cacheDir),
+                (application as ReaderApp).mediaRepository,
                 application
             ) as T
         }

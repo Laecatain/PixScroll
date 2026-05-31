@@ -11,6 +11,7 @@ import com.example.reader.data.model.MediaItem
 import com.example.reader.util.DimensionRecord
 import com.example.reader.util.FolderCache
 import com.example.reader.util.MediaDimensionsCache
+import com.example.reader.util.SearchIndex
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -44,7 +45,7 @@ interface MediaRepository {
 private val IMAGE_EXTENSIONS = setOf(
     "jpg", "jpeg", "png", "gif", "webp", "bmp", "avif", "heic", "heif"
 )
-private val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "avi", "mov", "wmv", "flv", "3gp")
+private val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "avi", "mov", "wmv", "flv", "3gp", "vdat")
 private val ALL_MEDIA_EXTENSIONS = IMAGE_EXTENSIONS + VIDEO_EXTENSIONS
 
 class AndroidMediaRepository(
@@ -56,9 +57,11 @@ class AndroidMediaRepository(
     private var cachedHiddenParents: Set<Long>? = null
     @Volatile
     private var allFoldersCache: List<MediaFolder>? = null
-    private val fileNameIndex: MutableMap<Long, MutableList<String>> = mutableMapOf()
-    @Volatile
-    private var isIndexBuilt = false
+    val searchIndex = SearchIndex()
+
+    init {
+        cacheDir?.let { searchIndex.loadFromDisk(it) }
+    }
 
     private val fileProjection = arrayOf(
         MediaStore.Files.FileColumns._ID,
@@ -123,9 +126,11 @@ class AndroidMediaRepository(
         )
 
         val folderMap = linkedMapOf<Long, FolderAccumulator>()
+        val searchBuilder = SearchIndex.Builder()
 
         cursor?.use {
             val idCol = it.getColumnIndex(MediaStore.Files.FileColumns._ID)
+            val nameCol = it.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
             val parentCol = it.getColumnIndex(MediaStore.Files.FileColumns.PARENT)
             val bucketCol = it.getColumnIndex(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
             val dataCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATA)
@@ -134,6 +139,9 @@ class AndroidMediaRepository(
             val mediaTypeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
             val sizeCol = it.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
             val dateModifiedCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATE_MODIFIED)
+            val orientCol = it.getColumnIndex(MediaStore.Files.FileColumns.ORIENTATION)
+            val widthCol = it.getColumnIndex(MediaStore.MediaColumns.WIDTH)
+            val heightCol = it.getColumnIndex(MediaStore.MediaColumns.HEIGHT)
 
             while (it.moveToNext()) {
                 val parent = if (parentCol >= 0) it.getLong(parentCol) else continue
@@ -146,6 +154,10 @@ class AndroidMediaRepository(
                 val isVideo = mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO || mime.startsWith("video/")
                 val size = if (sizeCol >= 0) it.getLong(sizeCol) else 0L
                 val dateModified = if (dateModifiedCol >= 0) it.getLong(dateModifiedCol) else 0L
+                val name = if (nameCol >= 0) it.getString(nameCol) ?: "" else ""
+                val orientation = if (orientCol >= 0) it.getInt(orientCol) else 0
+                val w = if (widthCol >= 0) it.getInt(widthCol) else 0
+                val h = if (heightCol >= 0) it.getInt(heightCol) else 0
 
                 val acc = folderMap.getOrPut(parent) {
                     val bucket = if (bucketCol >= 0) it.getString(bucketCol) ?: "Unknown" else "Unknown"
@@ -178,11 +190,26 @@ class AndroidMediaRepository(
                     acc.coverSize = size
                     acc.coverThumbnailPath = null
                 }
+
+                // Build search index (single pass, piggybacking on full MediaStore scan)
+                searchBuilder.add(
+                    id = fileId,
+                    name = name,
+                    parentId = parent,
+                    mimeType = mime,
+                    size = size,
+                    dateModified = dateModified,
+                    folderPath = data,
+                    orientation = orientation,
+                    width = w,
+                    height = h
+                )
             }
         }
 
-        // After cursor?.use block
-        isIndexBuilt = true
+        // Build and persist the search index atomically
+        searchIndex.build(searchBuilder.build())
+        cacheDir?.let { searchIndex.saveToDisk(it) }
 
         if (folderMap.isEmpty()) {
             emit(emptyList())
@@ -274,79 +301,52 @@ class AndroidMediaRepository(
             emit(emptyList())
             return@flow
         }
-        val lowerQuery = query.lowercase()
 
-        val candidateIds = if (isIndexBuilt) {
-            fileNameIndex.filter { (_, filenames) ->
-                filenames.any { it.contains(lowerQuery) }
-            }.keys.toList()
-        } else {
-            emptyList()
+        // Fast path: pure in-memory search using pre-built index
+        if (searchIndex.isBuilt) {
+            val matchingEntries = searchIndex.search(query)
+            if (matchingEntries.isEmpty()) {
+                emit(emptyList())
+                return@flow
+            }
+            val hiddenParents = getHiddenFolderParentIds()
+            val visibleEntries = if (hiddenParents.isEmpty()) {
+                matchingEntries
+            } else {
+                matchingEntries.filter { it.parentId !in hiddenParents }
+            }
+            emit(searchIndex.toMediaItems(visibleEntries, unifiedUri))
+            return@flow
         }
 
-        if (candidateIds.isNotEmpty()) {
-            // Index hit: narrow query to specific parent IDs
-            val selection = StringBuilder(
-                "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
-            )
-            val selectionArgs = mutableListOf(
-                MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
-                MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString()
-            )
+        // Fallback: index not yet built (cold start before getAllFolders completes)
+        val selection = StringBuilder(
+            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
+        )
+        val selectionArgs = mutableListOf(
+            MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
+            MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString()
+        )
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                selection.append(" AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0")
-            }
-
-            val hiddenParents = getHiddenFolderParentIds()
-            if (hiddenParents.isNotEmpty()) {
-                val placeholders = hiddenParents.joinToString(",") { "?" }
-                selection.append(" AND ${MediaStore.Files.FileColumns.PARENT} NOT IN ($placeholders)")
-                selectionArgs.addAll(hiddenParents.map { it.toString() })
-            }
-
-            val parentPlaceholders = candidateIds.joinToString(",") { "?" }
-            selection.append(" AND ${MediaStore.Files.FileColumns.PARENT} IN ($parentPlaceholders)")
-            selectionArgs.addAll(candidateIds.map { it.toString() })
-
-            selection.append(" AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?")
-            selectionArgs.add("%$query%")
-
-            val cursor = contentResolver.query(
-                unifiedUri, fileProjection, selection.toString(), selectionArgs.toTypedArray(),
-                "${MediaStore.Files.FileColumns.DATE_TAKEN} DESC"
-            )
-            emit(readMediaItemsFromCursor(cursor))
-        } else {
-            // Index not built: full LIKE query fallback
-            val selection = StringBuilder(
-                "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
-            )
-            val selectionArgs = mutableListOf(
-                MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
-                MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString()
-            )
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                selection.append(" AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0")
-            }
-
-            val hiddenParents = getHiddenFolderParentIds()
-            if (hiddenParents.isNotEmpty()) {
-                val placeholders = hiddenParents.joinToString(",") { "?" }
-                selection.append(" AND ${MediaStore.Files.FileColumns.PARENT} NOT IN ($placeholders)")
-                selectionArgs.addAll(hiddenParents.map { it.toString() })
-            }
-
-            selection.append(" AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?")
-            selectionArgs.add("%$query%")
-
-            val cursor = contentResolver.query(
-                unifiedUri, fileProjection, selection.toString(), selectionArgs.toTypedArray(),
-                "${MediaStore.Files.FileColumns.DATE_TAKEN} DESC"
-            )
-            emit(readMediaItemsFromCursor(cursor))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            selection.append(" AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0")
         }
+
+        val hiddenParents = getHiddenFolderParentIds()
+        if (hiddenParents.isNotEmpty()) {
+            val placeholders = hiddenParents.joinToString(",") { "?" }
+            selection.append(" AND ${MediaStore.Files.FileColumns.PARENT} NOT IN ($placeholders)")
+            selectionArgs.addAll(hiddenParents.map { it.toString() })
+        }
+
+        selection.append(" AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?")
+        selectionArgs.add("%$query%")
+
+        val cursor = contentResolver.query(
+            unifiedUri, fileProjection, selection.toString(), selectionArgs.toTypedArray(),
+            "${MediaStore.Files.FileColumns.DATE_TAKEN} DESC"
+        )
+        emit(readMediaItemsFromCursor(cursor))
     }.flowOn(Dispatchers.IO)
 
     override fun searchFolders(query: String): Flow<List<MediaFolder>> = flow {
@@ -472,12 +472,6 @@ class AndroidMediaRepository(
                         height = h
                     )
                 )
-                // Only index during first full scan (Build filename index for search)
-                if (!isIndexBuilt) {
-                    synchronized(fileNameIndex) {
-                        fileNameIndex.getOrPut(parent) { mutableListOf() }.add(name.lowercase())
-                    }
-                }
             }
         }
         return items
@@ -605,6 +599,7 @@ class AndroidMediaRepository(
         "webm" -> "video/webm"
         "avi" -> "video/x-msvideo"
         "mov" -> "video/quicktime"
+        "vdat" -> "video/mp4"
         else -> "application/octet-stream"
     }
 

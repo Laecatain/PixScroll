@@ -6,6 +6,8 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.example.reader.data.repository.AndroidMediaRepository
+import com.example.reader.data.repository.MediaRepository
 import com.example.reader.ui.theme.ThemeState
 import com.example.reader.util.CustomVideoFrameDecoder
 import androidx.datastore.preferences.core.edit
@@ -21,6 +23,11 @@ import kotlinx.coroutines.runBlocking
 class ReaderApp : Application(), ImageLoaderFactory {
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Shared repository instance — all ViewModels reuse the same [searchIndex]. */
+    val mediaRepository: MediaRepository by lazy {
+        AndroidMediaRepository(contentResolver, cacheDir)
+    }
 
     override fun onCreate() {
         super.onCreate()
