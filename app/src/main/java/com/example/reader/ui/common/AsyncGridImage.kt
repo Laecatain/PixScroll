@@ -1,4 +1,4 @@
-package com.example.reader.ui.common
+﻿package com.example.reader.ui.common
 
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
@@ -52,8 +52,8 @@ fun AsyncGridImage(
 /**
  * 网格/列表缩略图（支持视频缓存）。
  * - 优先使用 [MediaItem.thumbnailPath]（L2 磁盘缓存直读，Precision.EXACT 避免二次缩放）
- * - 图片项：直接加载，.size(300) 避免解码全分辨率
- * - 视频项回退：Coil VideoFrameDecoder 实时抽帧 → 成功后自动回写 L2 缓存
+ * - 视频无 thumbnailPath 时先查磁盘缓存文件，命中则直读 JPEG（极快，无需打开视频）
+ * - 磁盘未命中时回退到 Coil VideoFrameDecoder 实时抽帧，成功后自动回写 L2 缓存
  * - 所有请求统一应用 crossfade(100) + 深色占位符消除 UI pop-in
  */
 @Composable
@@ -78,29 +78,44 @@ fun AsyncGridImage(
                 .placeholder(PLACEHOLDER_DRAWABLE)
                 .build()
         } else if (item.isVideo && thumbnailManager != null) {
-            // 视频无缓存：Coil VideoFrameDecoder 实时抽帧 → 写回 L2
-            ImageRequest.Builder(context)
-                .data(item.uri)
-                .size(Size(300, 300))
-                .crossfade(100)
-                .placeholder(PLACEHOLDER_DRAWABLE)
-                .listener(onSuccess = { _, result ->
-                    val drawable = result.drawable
-                    if (drawable is BitmapDrawable) {
-                        val file = thumbnailManager.getThumbFile(
-                            item.folderPath, item.dateModified, item.size
-                        )
-                        if (!file.exists()) {
-                            val bitmap = drawable.bitmap
-                            if (maxOf(bitmap.width, bitmap.height) <= 300) {
-                                thumbnailManager.saveBitmap(bitmap, file)
-                            } else {
-                                thumbnailManager.save(bitmap, file)
+            val cachedFile = thumbnailManager.getThumbFile(
+                item.folderPath, item.dateModified, item.size
+            )
+            if (cachedFile.exists()) {
+                // 磁盘缓存命中：直读 JPEG，无需打开视频文件
+                ImageRequest.Builder(context)
+                    .data(cachedFile)
+                    .size(300)
+                    .precision(Precision.EXACT)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .crossfade(100)
+                    .placeholder(PLACEHOLDER_DRAWABLE)
+                    .build()
+            } else {
+                // 磁盘未命中：Coil VideoFrameDecoder 实时抽帧 → 回写 L2
+                ImageRequest.Builder(context)
+                    .data(item.uri)
+                    .size(Size(300, 300))
+                    .crossfade(100)
+                    .placeholder(PLACEHOLDER_DRAWABLE)
+                    .listener(onSuccess = { _, result ->
+                        val drawable = result.drawable
+                        if (drawable is BitmapDrawable) {
+                            val file = thumbnailManager.getThumbFile(
+                                item.folderPath, item.dateModified, item.size
+                            )
+                            if (!file.exists()) {
+                                val bitmap = drawable.bitmap
+                                if (maxOf(bitmap.width, bitmap.height) <= 300) {
+                                    thumbnailManager.saveBitmap(bitmap, file)
+                                } else {
+                                    thumbnailManager.save(bitmap, file)
+                                }
                             }
                         }
-                    }
-                })
-                .build()
+                    })
+                    .build()
+            }
         } else {
             // 普通图片或无需 ThumbnailManager 的场景
             ImageRequest.Builder(context)

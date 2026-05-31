@@ -13,7 +13,7 @@ class ThumbnailBackfillManager(
     private val thumbnailManager: ThumbnailManager
 ) {
     companion object {
-        private const val MAX_TOTAL_THUMBNAILS = 50
+        private const val MAX_TOTAL_THUMBNAILS = 200
         private val backfillDispatcher = Dispatchers.IO.limitedParallelism(4)
     }
 

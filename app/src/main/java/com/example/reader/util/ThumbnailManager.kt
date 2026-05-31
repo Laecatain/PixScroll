@@ -140,13 +140,13 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
             val (targetW, targetH) = computeTargetSize(origWidth, origHeight, THUMB_MAX_DIMENSION)
             retriever.getScaledFrameAtTime(
                 1_000_000L,                                          // 1s，避开黑屏片头
-                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,           // 最近关键帧，O(1)
+                MediaMetadataRetriever.OPTION_CLOSEST,           // 最近关键帧，O(1)
                 targetW, targetH
             )
         } else {
             val full = retriever.getFrameAtTime(
                 1_000_000L,
-                MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+                MediaMetadataRetriever.OPTION_CLOSEST
             )
             full?.let { scaleToMaxDimension(it, THUMB_MAX_DIMENSION) }
         }
