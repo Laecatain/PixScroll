@@ -37,6 +37,8 @@ interface MediaRepository {
     ): Flow<List<MediaItem>>
 
     fun searchMedia(query: String): Flow<List<MediaItem>>
+
+    fun searchFolders(query: String): Flow<List<MediaFolder>>
 }
 
 private val IMAGE_EXTENSIONS = setOf(
@@ -261,6 +263,16 @@ class AndroidMediaRepository(
         )
 
         emit(readMediaItemsFromCursor(cursor))
+    }.flowOn(Dispatchers.IO)
+
+    override fun searchFolders(query: String): Flow<List<MediaFolder>> = flow {
+        val searchLower = query.lowercase().trim()
+        if (searchLower.isEmpty()) {
+            emit(emptyList())
+            return@flow
+        }
+        val allFolders = getAllFolders().first()
+        emit(allFolders.filter { it.folderName.lowercase().contains(searchLower) })
     }.flowOn(Dispatchers.IO)
 
     // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
