@@ -90,7 +90,14 @@ fun AsyncGridImage(
                         val file = thumbnailManager.getThumbFile(
                             item.folderPath, item.dateModified, item.size
                         )
-                        thumbnailManager.save(drawable.bitmap, file)
+                        if (!file.exists()) {
+                            val bitmap = drawable.bitmap
+                            if (maxOf(bitmap.width, bitmap.height) <= 300) {
+                                thumbnailManager.saveBitmap(bitmap, file)
+                            } else {
+                                thumbnailManager.save(bitmap, file)
+                            }
+                        }
                     }
                 })
                 .build()

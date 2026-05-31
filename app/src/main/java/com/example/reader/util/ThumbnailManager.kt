@@ -62,6 +62,21 @@ class ThumbnailManager(private val context: Context) {
     }
 
     /**
+     * Save a bitmap that is already at or below the target max dimension.
+     * Skips the scale check when bitmap is already small enough.
+     */
+    fun saveBitmap(bitmap: Bitmap, file: File): File? {
+        return try {
+            file.outputStream().use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, THUMB_QUALITY, out)
+            }
+            file
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
      * 生成视频缩略图并写入磁盘缓存。
      * 所有 IO（包括 exists 检查）均在 thumbDispatcher 上执行。
      */

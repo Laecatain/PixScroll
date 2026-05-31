@@ -10,6 +10,7 @@ import com.example.reader.data.repository.AndroidMediaRepository
 import com.example.reader.data.repository.MediaRepository
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
+import com.example.reader.util.ThumbnailBackfillManager
 import com.example.reader.util.ThumbnailManager
 import com.example.reader.util.saveSortMode
 import com.example.reader.util.saveSortOrder
@@ -56,6 +57,8 @@ class ReaderViewModel(
     @Volatile private var isFrozen = false
 
     private val thumbnailManager: ThumbnailManager? = application?.let { ThumbnailManager(it) }
+    private val backfillManager: ThumbnailBackfillManager? =
+        thumbnailManager?.let { ThumbnailBackfillManager(it) }
 
     init {
         if (application != null) {
@@ -208,7 +211,52 @@ class ReaderViewModel(
                     }
                 }
             }
+
+            // ── Phase 3: Batch backfill video thumbnails ──
+            val backfill = backfillManager ?: return@launch
+            val itemsForBackfill = _state.value.mediaItems
+            backfill.backfill(itemsForBackfill) { results ->
+                if (myGeneration != currentGeneration || isFrozen) return@backfill
+                val updates = results.mapNotNull { (index, path) ->
+                    val item = itemsForBackfill.getOrNull(index) ?: return@mapNotNull null
+                    ThumbnailUpdate(index, item, path)
+                }
+                if (updates.isNotEmpty()) {
+                    applyThumbnailUpdates(updates)
+                }
+            }
         }
+    }
+
+    private data class ThumbnailUpdate(
+        val index: Int,
+        val sourceItem: MediaItem,
+        val thumbnailPath: String
+    )
+
+    private fun applyThumbnailUpdates(updates: List<ThumbnailUpdate>) {
+        val current = _state.value
+        val updatedItems = current.mediaItems.toMutableList()
+        var changed = false
+
+        updates.forEach { update ->
+            val currentItem = updatedItems.getOrNull(update.index)
+            if (currentItem != null && currentItem.isSameIdentity(update.sourceItem)) {
+                updatedItems[update.index] = currentItem.copy(thumbnailPath = update.thumbnailPath)
+                changed = true
+            }
+        }
+
+        if (changed) {
+            _state.value = current.copy(mediaItems = updatedItems)
+        }
+    }
+
+    private fun MediaItem.isSameIdentity(other: MediaItem): Boolean {
+        return uri == other.uri &&
+            folderPath == other.folderPath &&
+            dateModified == other.dateModified &&
+            size == other.size
     }
 
     fun setCurrentIndex(index: Int) {
