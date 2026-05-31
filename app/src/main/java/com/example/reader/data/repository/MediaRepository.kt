@@ -279,12 +279,15 @@ class AndroidMediaRepository(
             MediaDimensionsCache.save(cacheDir, cache ?: recordsToSave)
         }
 
-        // Phase 1: Ã¥Â¿Â«Ã©â‚¬Å¸Ã¥Ââ€˜Ã¥Â°â€ž MediaStore Ã¦â€¢Â°Ã¦ÂÂ®
+        // Phase 1: ???? MediaStore ??
         emit(filledItems)
-        if (filledItems.isEmpty()) return@flow
+        val rootPath = folderPath.ifEmpty {
+            allFoldersCache?.find { it.id == parentId }?.folderPath ?: ""
+        }
+        if (filledItems.isEmpty() && rootPath.isEmpty()) return@flow
+        if (rootPath.isEmpty()) return@flow
 
-        // Phase 2: FileTreeWalk Ã¨Â¡Â¥Ã¥ÂÂ¿Ã¦Å“ÂªÃ§Â´Â¢Ã¥Â¼â€¢Ã¦â€“â€¡Ã¤Â»Â¶
-        val rootPath = folderPath.ifEmpty { return@flow }
+        // Phase 2: FileTreeWalk ???????
         val unindexed = findUnindexedFiles(rootPath, knownFilePaths, cacheDir, mediaType)
         if (unindexed.isEmpty()) return@flow
 
@@ -519,12 +522,7 @@ class AndroidMediaRepository(
                     true
                 }
                 .filter { file ->
-                    val extensions = when (mediaType) {
-                        MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE -> IMAGE_EXTENSIONS
-                        MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO -> VIDEO_EXTENSIONS
-                        else -> ALL_MEDIA_EXTENSIONS
-                    }
-                    file.isFile && file.extension.lowercase() in extensions
+                    file.isFile && file.extension.lowercase() in ALL_MEDIA_EXTENSIONS
                 }
                 .forEach { file ->
                     currentCoroutineContext().ensureActive() // Ã¦â€Â¯Ã¦Å’Â ViewModel Ã©â€â‚¬Ã¦Â¯ÂÃ¦â€”Â¶Ã¤Â¸Â­Ã¦â€“Â­Ã¦â€°Â«Ã¦ÂÂ
@@ -573,7 +571,10 @@ class AndroidMediaRepository(
             MediaDimensionsCache.save(cacheDir!!, cache)
         }
 
-        return items
+        val filteredItems = if (mediaType != null) {
+            items.filter { it.mediaType == mediaType }
+        } else items
+        return filteredItems
     }
 
     private fun normalizeMimeType(mime: String, mediaType: Int): String {
