@@ -8,20 +8,23 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.reader.ReaderApp
 import com.example.reader.data.model.MediaFolder
-import com.example.reader.data.repository.AndroidMediaRepository
 import com.example.reader.data.repository.MediaRepository
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
 import com.example.reader.util.FolderCache
+import com.example.reader.util.ThumbnailManager
 import com.example.reader.util.saveFolderSortMode
 import com.example.reader.util.saveFolderSortOrder
 import com.example.reader.util.settingsFlow
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -48,6 +51,10 @@ class FolderListViewModel(
 
     private val _state: MutableStateFlow<FolderUiState>
     val state: StateFlow<FolderUiState>
+
+    private val thumbnailManager = application?.let { ThumbnailManager(it) }
+    private var loadJob: Job? = null
+
 
     val imageFolders: StateFlow<List<MediaFolder>>
     val videoFolders: StateFlow<List<MediaFolder>>
@@ -138,17 +145,19 @@ class FolderListViewModel(
     }
 
     private fun loadFolders() {
+        loadJob?.cancel()
         if (!skipNextLoading) {
             _state.value = FolderUiState.Loading
         }
         skipNextLoading = false
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             try {
                 repository.getAllFolders(sortMode = sortMode, sortOrder = sortOrder)
                     .onStart { Log.d(TAG, "Flow.onStart [thread=${Thread.currentThread().name}]") }
                     .onEach { folders ->
                         Log.d(TAG, "Flow.onEach: ${folders.size} 个文件夹 [thread=${Thread.currentThread().name}]")
                         _state.value = FolderUiState.Success(folders)
+                        refreshCoverThumbnailCache(folders)
                     }
                     .onCompletion { cause ->
                         Log.d(TAG, "Flow.onCompletion [thread=${Thread.currentThread().name}] cause=$cause")
@@ -163,11 +172,74 @@ class FolderListViewModel(
         }
     }
 
+    private fun refreshCoverThumbnailCache(folders: List<MediaFolder>) {
+        val app = application ?: return
+        val videoFolders = folders.filter { folder ->
+            folder.coverIsVideo &&
+                folder.coverPath.isNotEmpty() &&
+                folder.coverThumbnailPath == null
+        }
+        if (videoFolders.isEmpty()) return
+
+        val videoFolderIds = videoFolders.map { it.id }.toSet()
+
+        viewModelScope.launch {
+            try {
+                val thumbnailManager = ThumbnailManager(app)
+                val updatedFolders = folders.map { folder ->
+                    if (folder.id in videoFolderIds) {
+                        val thumbnail = thumbnailManager.generateThumbnail(
+                            folder.coverPath,
+                            folder.coverDateModified,
+                            folder.coverSize
+                        )
+                        if (thumbnail != null) {
+                            folder.copy(coverThumbnailPath = thumbnail.absolutePath)
+                        } else {
+                            folder
+                        }
+                    } else {
+                        folder
+                    }
+                }
+                if (updatedFolders != folders) {
+                    val thumbnailsById = updatedFolders.associate { folder ->
+                        folder.id to folder.coverThumbnailPath
+                    }
+                    _state.update { current ->
+                        if (current is FolderUiState.Success) {
+                            val currentFolders = current.folders.map { folder ->
+                                val thumbnailPath = thumbnailsById[folder.id]
+                                if (folder.coverThumbnailPath == null && thumbnailPath != null) {
+                                    folder.copy(coverThumbnailPath = thumbnailPath)
+                                } else {
+                                    folder
+                                }
+                            }
+                            FolderUiState.Success(currentFolders)
+                        } else {
+                            current
+                        }
+                    }
+                    // Read updated state after atomic update
+                    val s = _state.value
+                    if (s is FolderUiState.Success) {
+                        FolderCache.saveFolders(app.cacheDir, s.folders)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "缩略图缓存刷新失败: ${e.message}", e)
+            }
+        }
+    }
+
     class Factory(private val application: Application) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             return FolderListViewModel(
-                AndroidMediaRepository(application.contentResolver, application.cacheDir),
+                (application as ReaderApp).mediaRepository,
                 application
             ) as T
         }

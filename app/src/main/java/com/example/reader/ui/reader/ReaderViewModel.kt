@@ -1,18 +1,24 @@
 package com.example.reader.ui.reader
 
 import android.app.Application
+// MediaStore constants: IMAGE=1, VIDEO=3
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.reader.ReaderApp
 import com.example.reader.data.model.MediaItem
-import com.example.reader.data.repository.AndroidMediaRepository
 import com.example.reader.data.repository.MediaRepository
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
+import com.example.reader.util.ThumbnailBackfillManager
 import com.example.reader.util.ThumbnailManager
+import com.example.reader.util.saveImageSortMode
+import com.example.reader.util.saveImageSortOrder
 import com.example.reader.util.saveSortMode
 import com.example.reader.util.saveSortOrder
+import com.example.reader.util.saveVideoSortMode
+import com.example.reader.util.saveVideoSortOrder
 import com.example.reader.util.settingsFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -39,6 +46,38 @@ data class ReaderState(
     val sortOrder: SortOrder = SortOrder.DESC
 )
 
+private class SortPrefs(
+    val mode: SortMode,
+    val order: SortOrder,
+    val modeKey: String,
+    val orderKey: String,
+    val saveMode: suspend (Application, String) -> Unit,
+    val saveOrder: suspend (Application, String) -> Unit
+)
+
+private fun sortPrefsFor(mediaType: Int?): SortPrefs {
+    return when (mediaType) {
+        1 /* IMAGE */ -> SortPrefs(
+            mode = SortMode.DATE, order = SortOrder.DESC,
+            modeKey = "imageSortMode", orderKey = "imageSortOrder",
+            saveMode = { app, mode -> app.saveImageSortMode(mode) },
+            saveOrder = { app, order -> app.saveImageSortOrder(order) }
+        )
+        3 /* VIDEO */ -> SortPrefs(
+            mode = SortMode.DATE, order = SortOrder.DESC,
+            modeKey = "videoSortMode", orderKey = "videoSortOrder",
+            saveMode = { app, mode -> app.saveVideoSortMode(mode) },
+            saveOrder = { app, order -> app.saveVideoSortOrder(order) }
+        )
+        else -> SortPrefs(
+            mode = SortMode.DATE, order = SortOrder.DESC,
+            modeKey = "sortMode", orderKey = "sortOrder",
+            saveMode = { app, mode -> app.saveSortMode(mode) },
+            saveOrder = { app, order -> app.saveSortOrder(order) }
+        )
+    }
+}
+
 class ReaderViewModel(
     private val repository: MediaRepository,
     private val parentId: Long,
@@ -50,37 +89,52 @@ class ReaderViewModel(
     private val _state = MutableStateFlow(ReaderState(currentIndex = initialIndex))
     val state: StateFlow<ReaderState> = _state.asStateFlow()
 
-    // ── Generation ID Ticket System ──
+    // ?? Generation ID Ticket System ??
     private var mediaLoadJob: Job? = null
-    private var currentGeneration = 0
+    @Volatile private var currentGeneration = 0
     @Volatile private var isFrozen = false
 
     private val thumbnailManager: ThumbnailManager? = application?.let { ThumbnailManager(it) }
+    private val sortPrefs = sortPrefsFor(mediaType)
+    private val backfillManager: ThumbnailBackfillManager? =
+        thumbnailManager?.let { ThumbnailBackfillManager(it) }
 
     init {
         if (application != null) {
-            // ① 读取初始排序偏好并首次加载
+            // ? read initial sort prefs for this mediaType, then load
             viewModelScope.launch {
                 val initial = application.settingsFlow().first()
+                val modeName = when (mediaType) {
+                    1 /* IMAGE */ -> initial.imageSortMode
+                    3 /* VIDEO */ -> initial.videoSortMode
+                    else -> initial.sortMode
+                }
+                val orderName = when (mediaType) {
+                    1 /* IMAGE */ -> initial.imageSortOrder
+                    3 /* VIDEO */ -> initial.videoSortOrder
+                    else -> initial.sortOrder
+                }
                 _state.value = _state.value.copy(
-                    sortMode = try {
-                        SortMode.valueOf(initial.sortMode)
-                    } catch (_: IllegalArgumentException) { SortMode.DATE },
-                    sortOrder = try {
-                        SortOrder.valueOf(initial.sortOrder)
-                    } catch (_: IllegalArgumentException) { SortOrder.DESC }
+                    sortMode = try { SortMode.valueOf(modeName) } catch (_: IllegalArgumentException) { SortMode.DATE },
+                    sortOrder = try { SortOrder.valueOf(orderName) } catch (_: IllegalArgumentException) { SortOrder.DESC }
                 )
                 loadMedia()
             }
-            // ② 响应外部排序变更（DataStore 被其他界面写入时自动同步）
+            // ? respond to external sort changes (DataStore written by Settings screen)
             viewModelScope.launch {
                 application.settingsFlow().drop(1).collect { settings ->
-                    val newMode = try {
-                        SortMode.valueOf(settings.sortMode)
-                    } catch (_: IllegalArgumentException) { SortMode.DATE }
-                    val newOrder = try {
-                        SortOrder.valueOf(settings.sortOrder)
-                    } catch (_: IllegalArgumentException) { SortOrder.DESC }
+                    val newModeName = when (mediaType) {
+                        1 /* IMAGE */ -> settings.imageSortMode
+                        3 /* VIDEO */ -> settings.videoSortMode
+                        else -> settings.sortMode
+                    }
+                    val newOrderName = when (mediaType) {
+                        1 /* IMAGE */ -> settings.imageSortOrder
+                        3 /* VIDEO */ -> settings.videoSortOrder
+                        else -> settings.sortOrder
+                    }
+                    val newMode = try { SortMode.valueOf(newModeName) } catch (_: IllegalArgumentException) { SortMode.DATE }
+                    val newOrder = try { SortOrder.valueOf(newOrderName) } catch (_: IllegalArgumentException) { SortOrder.DESC }
                     val s = _state.value
                     if (newMode != s.sortMode || newOrder != s.sortOrder) {
                         _state.value = s.copy(sortMode = newMode, sortOrder = newOrder)
@@ -89,12 +143,12 @@ class ReaderViewModel(
                 }
             }
         } else {
-            // 无 Application（测试）: 默认排序首次加载
+            // no Application (test): default sort, load once
             viewModelScope.launch { loadMedia() }
         }
     }
 
-    /** 冻结所有后台工作，用于离开界面时防止僵尸协程。 */
+    /** freeze all background work when leaving screen */
     fun stopAllWork() {
         mediaLoadJob?.cancel()
         isFrozen = true
@@ -103,7 +157,7 @@ class ReaderViewModel(
     fun setSortMode(mode: SortMode) {
         _state.value = _state.value.copy(sortMode = mode)
         application?.let { app ->
-            viewModelScope.launch { app.saveSortMode(mode.name) }
+            viewModelScope.launch { sortPrefs.saveMode(app, mode.name) }
         }
         loadMedia()
     }
@@ -111,7 +165,7 @@ class ReaderViewModel(
     fun setSortOrder(order: SortOrder) {
         _state.value = _state.value.copy(sortOrder = order)
         application?.let { app ->
-            viewModelScope.launch { app.saveSortOrder(order.name) }
+            viewModelScope.launch { sortPrefs.saveOrder(app, order.name) }
         }
         loadMedia()
     }
@@ -120,30 +174,32 @@ class ReaderViewModel(
         val newOrder = if (_state.value.sortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
         _state.value = _state.value.copy(sortOrder = newOrder)
         application?.let { app ->
-            viewModelScope.launch { app.saveSortOrder(newOrder.name) }
+            viewModelScope.launch { sortPrefs.saveOrder(app, newOrder.name) }
         }
         loadMedia()
     }
 
     private fun loadMedia() {
-        // 取消前序任务，提升代际 ID，杀死所有过期协程
         mediaLoadJob?.cancel()
+        val generation = ++currentGeneration
         isFrozen = false
-        val myGeneration = ++currentGeneration
+        val myGeneration = generation
+        val mode = _state.value.sortMode
+        val order = _state.value.sortOrder
 
         mediaLoadJob = viewModelScope.launch {
-            val prevState = _state.value
-            val prevUri = prevState.mediaItems.getOrNull(prevState.currentIndex)?.uri?.toString()
-            var isFirstEmission = true
-
-            // ── Phase 1: 仓库 Flow 直通发射（带索引修正）──
             try {
+                var isFirstEmission = true
+                val prevState = _state.value
+                val prevUri = prevState.mediaItems.getOrNull(prevState.currentIndex)?.uri?.toString()
+
                 repository.getMediaByFolder(
-                    parentId,
-                    sortMode = prevState.sortMode,
-                    sortOrder = prevState.sortOrder,
+                    parentId = parentId,
+                    sortMode = mode,
+                    sortOrder = order,
                     mediaType = mediaType
                 ).collect { items ->
+                    if (generation != currentGeneration || isFrozen) return@collect
                     val folderName = items.firstOrNull()?.folderPath
                         ?.substringBeforeLast("/")?.substringAfterLast("/") ?: ""
                     val reconciledIndex = if (isFirstEmission) {
@@ -177,38 +233,61 @@ class ReaderViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.value = _state.value.copy(isLoading = false, error = e.message ?: "加载失败")
+                _state.value = _state.value.copy(isLoading = false, error = e.message ?: "load failed")
                 return@launch
             }
 
-            // ── Phase 2: 异步批量更新 thumbnailPath ──
             val mgr = thumbnailManager ?: return@launch
-            val currentItems = _state.value.mediaItems
-            if (currentItems.isEmpty()) return@launch
+            updateVideoThumbnails(myGeneration, mgr)
+        }
+    }
 
-            withContext(Dispatchers.IO) {
-                // 用 withIndex 保留原始索引，直接通过索引更新，避免脆弱的下标匹配
-                currentItems.withIndex().chunked(5).forEach { chunk ->
-                    // 代际检查：如果已过期则静默退出
-                    if (myGeneration != currentGeneration || isFrozen) return@withContext
-
-                    var changed = false
-                    val updatedList = _state.value.mediaItems.toMutableList()
-
-                    for ((originalIndex, item) in chunk) {
-                        if (item.isVideo && mgr.exists(item.folderPath, item.dateModified, item.size)) {
-                            val thumbFile = mgr.getThumbFile(item.folderPath, item.dateModified, item.size)
-                            updatedList[originalIndex] = item.copy(thumbnailPath = thumbFile.absolutePath)
-                            changed = true
-                        }
-                    }
-
-                    if (changed) {
-                        _state.value = _state.value.copy(mediaItems = updatedList)
-                    }
-                }
+    private suspend fun updateVideoThumbnails(generation: Int, mgr: ThumbnailManager) {
+        val backfill = backfillManager ?: return
+        val items = _state.value.mediaItems
+        backfill.backfill(items) { results ->
+            if (generation != currentGeneration || isFrozen) return@backfill
+            val updates = results.mapNotNull { (index, path) ->
+                val item = items.getOrNull(index) ?: return@mapNotNull null
+                ThumbnailUpdate(index, item, path)
+            }
+            if (updates.isNotEmpty()) {
+                applyThumbnailUpdates(generation, updates)
             }
         }
+    }
+
+    private fun applyThumbnailUpdates(generation: Int, updates: List<ThumbnailUpdate>) {
+        _state.update { current ->
+            if (generation != currentGeneration || isFrozen) return@update current
+
+            val updatedItems = current.mediaItems.toMutableList()
+            var changed = false
+
+            updates.forEach { update ->
+                val currentItem = updatedItems.getOrNull(update.index)
+                if (currentItem != null && currentItem.isSameIdentity(update.sourceItem)) {
+                    updatedItems[update.index] = currentItem.copy(thumbnailPath = update.thumbnailPath)
+                    changed = true
+                }
+            }
+
+            if (changed) current.copy(mediaItems = updatedItems) else current
+        }
+    }
+
+    private data class ThumbnailUpdate(
+        val index: Int,
+        val sourceItem: MediaItem,
+        val thumbnailPath: String
+    )
+
+
+    private fun MediaItem.isSameIdentity(other: MediaItem): Boolean {
+        return uri == other.uri &&
+            folderPath == other.folderPath &&
+            dateModified == other.dateModified &&
+            size == other.size
     }
 
     fun setCurrentIndex(index: Int) {
@@ -228,7 +307,7 @@ class ReaderViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             return ReaderViewModel(
-                AndroidMediaRepository(application.contentResolver),
+                (application as ReaderApp).mediaRepository,
                 parentId,
                 initialIndex,
                 application,

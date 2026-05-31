@@ -14,18 +14,26 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "re
 
 object PreferenceKeys {
     val THEME_MODE = intPreferencesKey("theme_mode")
-    val SORT_MODE = stringPreferencesKey("sort_mode")           // 媒体列表排序
-    val SORT_ORDER = stringPreferencesKey("sort_order")          // 媒体列表排序方向
-    val FOLDER_SORT_MODE = stringPreferencesKey("folder_sort_mode")   // 首页文件夹排序
-    val FOLDER_SORT_ORDER = stringPreferencesKey("folder_sort_order") // 首页文件夹排序方向
+    val SORT_MODE = stringPreferencesKey("sort_mode")               // media list sort (legacy/non-specific)
+    val SORT_ORDER = stringPreferencesKey("sort_order")              // media list sort direction
+    val IMAGE_SORT_MODE = stringPreferencesKey("image_sort_mode")    // image folder sort
+    val IMAGE_SORT_ORDER = stringPreferencesKey("image_sort_order")  // image folder sort direction
+    val VIDEO_SORT_MODE = stringPreferencesKey("video_sort_mode")    // video folder sort
+    val VIDEO_SORT_ORDER = stringPreferencesKey("video_sort_order")  // video folder sort direction
+    val FOLDER_SORT_MODE = stringPreferencesKey("folder_sort_mode")   // home folder sort
+    val FOLDER_SORT_ORDER = stringPreferencesKey("folder_sort_order") // home folder sort direction
     val GRID_COLUMNS = intPreferencesKey("grid_columns")
 }
 
 data class AppSettingsData(
     val themeMode: Int = 1,                // 0=LIGHT, 1=DARK, 2=AMOLED_BLACK
-    val sortMode: String = "DATE",         // 媒体列表排序
+    val sortMode: String = "DATE",         // media list sort (legacy)
     val sortOrder: String = "DESC",
-    val folderSortMode: String = "DATE",   // 首页文件夹排序
+    val imageSortMode: String = "DATE",    // image folder sort
+    val imageSortOrder: String = "DESC",
+    val videoSortMode: String = "DATE",    // video folder sort
+    val videoSortOrder: String = "DESC",
+    val folderSortMode: String = "DATE",   // home folder sort
     val folderSortOrder: String = "DESC",
     val gridColumns: Int = 3
 )
@@ -35,6 +43,10 @@ fun Context.settingsFlow(): Flow<AppSettingsData> = dataStore.data.map { prefs -
         themeMode = prefs[PreferenceKeys.THEME_MODE] ?: 1,
         sortMode = prefs[PreferenceKeys.SORT_MODE] ?: "DATE",
         sortOrder = prefs[PreferenceKeys.SORT_ORDER] ?: "DESC",
+        imageSortMode = prefs[PreferenceKeys.IMAGE_SORT_MODE] ?: "DATE",
+        imageSortOrder = prefs[PreferenceKeys.IMAGE_SORT_ORDER] ?: "DESC",
+        videoSortMode = prefs[PreferenceKeys.VIDEO_SORT_MODE] ?: "DATE",
+        videoSortOrder = prefs[PreferenceKeys.VIDEO_SORT_ORDER] ?: "DESC",
         folderSortMode = prefs[PreferenceKeys.FOLDER_SORT_MODE] ?: "DATE",
         folderSortOrder = prefs[PreferenceKeys.FOLDER_SORT_ORDER] ?: "DESC",
         gridColumns = prefs[PreferenceKeys.GRID_COLUMNS] ?: 3
@@ -51,6 +63,22 @@ suspend fun Context.saveSortMode(mode: String) {
 
 suspend fun Context.saveSortOrder(order: String) {
     dataStore.edit { prefs -> prefs[PreferenceKeys.SORT_ORDER] = order }
+}
+
+suspend fun Context.saveImageSortMode(mode: String) {
+    dataStore.edit { prefs -> prefs[PreferenceKeys.IMAGE_SORT_MODE] = mode }
+}
+
+suspend fun Context.saveImageSortOrder(order: String) {
+    dataStore.edit { prefs -> prefs[PreferenceKeys.IMAGE_SORT_ORDER] = order }
+}
+
+suspend fun Context.saveVideoSortMode(mode: String) {
+    dataStore.edit { prefs -> prefs[PreferenceKeys.VIDEO_SORT_MODE] = mode }
+}
+
+suspend fun Context.saveVideoSortOrder(order: String) {
+    dataStore.edit { prefs -> prefs[PreferenceKeys.VIDEO_SORT_ORDER] = order }
 }
 
 suspend fun Context.saveFolderSortMode(mode: String) {
