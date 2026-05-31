@@ -474,7 +474,9 @@ class AndroidMediaRepository(
                 )
                 // Only index during first full scan (Build filename index for search)
                 if (!isIndexBuilt) {
-                    fileNameIndex.getOrPut(parent) { mutableListOf() }.add(name.lowercase())
+                    synchronized(fileNameIndex) {
+                        fileNameIndex.getOrPut(parent) { mutableListOf() }.add(name.lowercase())
+                    }
                 }
             }
         }
