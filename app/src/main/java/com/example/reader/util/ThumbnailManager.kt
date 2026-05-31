@@ -1,22 +1,32 @@
 package com.example.reader.util
 
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.os.Build
+import android.util.LruCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
 
 /**
- * 视频缩略图 L2 磁盘缓存管理器。
+ * 视频缩略图管理器：L1 内存缓存 + L2 磁盘缓存。
  *
- * 职责：
- * 1. 将视频帧抽稀为 JPG 文件存入 cacheDir/thumbnails/
- * 2. 用 (path + lastModified + size) 的 MD5 作为唯一缓存键
- * 3. 全部 IO 均在 thumbDispatcher（limitedParallelism=2）上执行，
- *    避免与 Coil 读取 L2 缓存的线程竞争
+ * ── L1 内存缓存 ──
+ *   LruCache<String, Bitmap>，键为 MD5，值为 RGB_565 Bitmap。
+ *   默认 4MB（~120 张 300px 缩略图），LRU 淘汰时自动 recycle()。
+ *   写入路径（save / saveBitmap / generateThumbnailSync）均同时填充 L1 + L2。
+ *
+ * ── L2 磁盘缓存 ──
+ *   cacheDir/thumbnails/{md5}.jpg，300px JPEG，quality=80。
+ *   键基于 (path + lastModified + size) 的 MD5，文件内容变化自动失效。
+ *
+ * ── 读取优先级 ──
+ *   getBitmap(): L1 内存 → L2 磁盘解码 → null
+ *   Coil 加载: 直读 L2 磁盘文件（无需视频解码），Coil 自身 memory cache 兜底
  *
  * 抽帧引擎：
  * - API 27+: MediaMetadataRetriever.getScaledFrameAtTime — native 层缩放
@@ -32,7 +42,51 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
     companion object {
         private const val THUMB_QUALITY = 80
         private const val THUMB_MAX_DIMENSION = 300
+        /** L1 内存缓存上限：4MB（~120 张 300px RGB_565 缩略图 ~32KB/张） */
+        private const val MEMORY_CACHE_MAX_BYTES = 4 * 1024 * 1024
         private val thumbDispatcher = Dispatchers.IO.limitedParallelism(2)
+    }
+
+    // ══════════════════════════════════════════════════
+    //  L1 内存缓存
+    // ══════════════════════════════════════════════════
+
+    /**
+     * L1 内存缓存。
+     * - 键 = MD5（与 L2 磁盘文件名一致，不含扩展名）
+     * - 值 = RGB_565 Bitmap（显存占用减半）
+     * - 淘汰回调中自动 recycle()，防止 native 内存泄漏
+     */
+    private val memoryCache = object : LruCache<String, Bitmap>(MEMORY_CACHE_MAX_BYTES) {
+        override fun sizeOf(key: String, bitmap: Bitmap): Int = bitmap.allocationByteCount
+        override fun entryRemoved(evicted: Boolean, key: String, oldValue: Bitmap, newValue: Bitmap?) {
+            oldValue.recycle()
+        }
+    }
+
+    // ══════════════════════════════════════════════════
+    //  公共 API
+    // ══════════════════════════════════════════════════
+
+    /**
+     * 从 L1 内存 → L2 磁盘依次查找，返回缓存的 Bitmap（可能为 null）。
+     * L2 命中时自动解码并升温 L1，下次访问走内存。
+     */
+    fun getBitmap(path: String, lastModified: Long, size: Long): Bitmap? {
+        val key = hashKey("$path$lastModified$size")
+        // 1. L1 内存命中
+        memoryCache.get(key)?.let { return it }
+        // 2. L2 磁盘命中 → 解码并升温 L1
+        val file = File(thumbDir, "$key.jpg")
+        if (file.exists()) {
+            val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+            if (bitmap != null) {
+                val cached = bitmap.copy(Bitmap.Config.RGB_565, false)
+                if (cached != null) memoryCache.put(key, cached)
+            }
+            return bitmap
+        }
+        return null
     }
 
     /** 返回缓存文件对象（可能不存在），基于 path + lastModified + size 生成键。 */
@@ -41,14 +95,16 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
         return File(thumbDir, "$key.jpg")
     }
 
-    /** 检查该视频的缩略图是否已缓存。 */
+    /** 检查该视频的缩略图是否已缓存（L1 内存或 L2 磁盘）。 */
     fun exists(path: String, lastModified: Long, size: Long): Boolean {
-        return getThumbFile(path, lastModified, size).exists()
+        val key = hashKey("$path$lastModified$size")
+        return memoryCache.get(key) != null || File(thumbDir, "$key.jpg").exists()
     }
 
     /**
      * 从已有的 Bitmap 保存为缩略图缓存文件。
      * 同步执行（供 Coil onSuccess 回调使用，运行在 Coil 后台线程）。
+     * 自动写入 L2 磁盘 + L1 内存缓存。
      */
     fun save(bitmap: Bitmap, file: File): File? {
         return try {
@@ -56,6 +112,9 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
             file.outputStream().use { out ->
                 scaled.compress(Bitmap.CompressFormat.JPEG, THUMB_QUALITY, out)
             }
+            // L1 内存缓存：使用独立 RGB_565 副本，不持有调用方引用
+            val cached = scaled.copy(Bitmap.Config.RGB_565, false)
+            if (cached != null) memoryCache.put(file.nameWithoutExtension, cached)
             if (scaled !== bitmap) scaled.recycle()
             file
         } catch (_: Exception) {
@@ -66,12 +125,16 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
     /**
      * Save a bitmap that is already at or below the target max dimension.
      * Skips the scale check when bitmap is already small enough.
+     * 自动写入 L2 磁盘 + L1 内存缓存。
      */
     fun saveBitmap(bitmap: Bitmap, file: File): File? {
         return try {
             file.outputStream().use { out ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, THUMB_QUALITY, out)
             }
+            // L1 内存缓存
+            val cached = bitmap.copy(Bitmap.Config.RGB_565, false)
+            if (cached != null) memoryCache.put(file.nameWithoutExtension, cached)
             file
         } catch (_: Exception) {
             null
@@ -79,27 +142,45 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
     }
 
     /**
-     * 生成视频缩略图并写入磁盘缓存。
+     * 生成视频缩略图并写入 L2 磁盘 + L1 内存缓存。
      * 所有 IO（包括 exists 检查）均在 thumbDispatcher 上执行。
      */
     suspend fun generateThumbnail(videoPath: String, dateModified: Long, size: Long): File? {
         return withContext(thumbDispatcher) {
-            if (exists(videoPath, dateModified, size)) {
-                return@withContext getThumbFile(videoPath, dateModified, size)
+            val key = hashKey("$videoPath$dateModified$size")
+            // L1 命中直接返回
+            if (memoryCache.get(key) != null) {
+                return@withContext File(thumbDir, "$key.jpg")
+            }
+            if (File(thumbDir, "$key.jpg").exists()) {
+                return@withContext File(thumbDir, "$key.jpg")
             }
             generateThumbnailSync(videoPath, dateModified, size)
         }
     }
 
-    /** 清除所有缓存缩略图。 */
+    /** 清除所有缓存缩略图（L1 内存 + L2 磁盘）。 */
     fun clearCache() {
         thumbDir.listFiles()?.forEach { it.delete() }
+        memoryCache.evictAll()
+    }
+
+    /**
+     * 响应系统内存紧张 —— 由 Application.onTrimMemory() 调用。
+     *
+     * @param level ComponentCallbacks2.TRIM_MEMORY_* 级别
+     */
+    fun trimMemory(level: Int) {
+        when {
+            level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE -> memoryCache.evictAll()
+            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> memoryCache.trimToSize(MEMORY_CACHE_MAX_BYTES / 2)
+        }
     }
 
     // ── 内部方法 ──
 
     /**
-     * 用 MediaMetadataRetriever 抽取视频帧并保存为缩略图。
+     * 用 MediaMetadataRetriever 抽取视频帧，写入 L2 磁盘 + L1 内存缓存。
      *
      * API 27+ 走 getScaledFrameAtTime（native 层缩放，避免分配全尺寸 Bitmap）；
      * API 26  走 getFrameAtTime + 手动缩放。
@@ -113,6 +194,9 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
             file.outputStream().use { out ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, THUMB_QUALITY, out)
             }
+            // L1 内存缓存
+            val cached = bitmap.copy(Bitmap.Config.RGB_565, false)
+            if (cached != null) memoryCache.put(file.nameWithoutExtension, cached)
             bitmap.recycle()
             file
         } catch (_: Exception) {
