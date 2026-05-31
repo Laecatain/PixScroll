@@ -10,9 +10,15 @@ class FakeMediaRepository : MediaRepository {
     var folders: List<MediaFolder> = emptyList()
     var mediaItems: Map<Long, List<MediaItem>> = emptyMap()
     var searchResults: List<MediaItem> = emptyList()
+    var searchFolderResults: List<MediaFolder>? = null
     var foldersError: Throwable? = null
     var mediaError: Throwable? = null
     var searchError: Throwable? = null
+    var folderSearchError: Throwable? = null
+    var searchMediaCallCount: Int = 0
+    var searchFoldersCallCount: Int = 0
+    var lastSearchMediaQuery: String? = null
+    var lastSearchFoldersQuery: String? = null
 
     override fun getAllFolders(
         sortMode: SortMode,
@@ -34,7 +40,19 @@ class FakeMediaRepository : MediaRepository {
     }
 
     override fun searchMedia(query: String): Flow<List<MediaItem>> {
+        searchMediaCallCount++
+        lastSearchMediaQuery = query
         searchError?.let { throw it }
         return flowOf(searchResults)
+    }
+
+    override fun searchFolders(query: String): Flow<List<MediaFolder>> {
+        searchFoldersCallCount++
+        lastSearchFoldersQuery = query
+        folderSearchError?.let { throw it }
+        val results = searchFolderResults ?: folders.filter { folder ->
+            folder.folderName.contains(query, ignoreCase = true)
+        }
+        return flowOf(results)
     }
 }
