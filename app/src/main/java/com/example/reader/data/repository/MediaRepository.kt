@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
 import com.example.reader.data.model.MediaFolder
 import com.example.reader.data.model.MediaItem
 import com.example.reader.util.DimensionRecord
@@ -61,6 +62,9 @@ class AndroidMediaRepository(
 
     init {
         cacheDir?.let { searchIndex.loadFromDisk(it) }
+        cachedHiddenParents = cacheDir?.let { FolderCache.loadHiddenParents(it) }?.takeIf { it.isNotEmpty() }
+        allFoldersCache = cacheDir?.let { FolderCache.loadFolders(it) }?.takeIf { it.isNotEmpty() }
+        Log.d(TAG, "init: indexLoaded=${searchIndex.isBuilt} hiddenCached=${cachedHiddenParents != null} foldersCached=${allFoldersCache != null}")
     }
 
     private val fileProjection = arrayOf(
@@ -307,13 +311,14 @@ class AndroidMediaRepository(
 
         // Fast path: pure in-memory search using pre-built index
         if (searchIndex.isBuilt) {
+            Log.d(TAG, "searchMedia: in-memory path (indexSize=${searchIndex.size})")
             val matchingEntries = searchIndex.search(query)
             if (matchingEntries.isEmpty()) {
                 emit(emptyList())
                 return@flow
             }
-            val hiddenParents = getHiddenFolderParentIds()
-            val visibleEntries = if (hiddenParents.isEmpty()) {
+            val hiddenParents = cachedHiddenParents
+            val visibleEntries = if (hiddenParents == null || hiddenParents.isEmpty()) {
                 matchingEntries
             } else {
                 matchingEntries.filter { it.parentId !in hiddenParents }
@@ -323,6 +328,7 @@ class AndroidMediaRepository(
         }
 
         // Fallback: index not yet built (cold start before getAllFolders completes)
+        Log.d(TAG, "searchMedia: fallback SQL LIKE (index not built)")
         val selection = StringBuilder(
             "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
         )
@@ -359,6 +365,7 @@ class AndroidMediaRepository(
             return@flow
         }
         val cache = allFoldersCache
+        Log.d(TAG, "searchFolders: allFoldersCache=" + if (cache != null) "hit(" + cache!!.size + ")" else "miss--getAllFolders")
         if (cache != null) {
             emit(cache.filter { it.folderName.contains(trimmedQuery, ignoreCase = true) })
         } else {
@@ -712,8 +719,8 @@ class AndroidMediaRepository(
         var hasImage: Boolean = false,
         var hasVideo: Boolean = false
     )
-
     companion object {
+        private const val TAG = "MediaRepo"
         private val EXCLUDED_DIRS = setOf("Android", "cache", "tmp", "temp", "data")
     }
 }
