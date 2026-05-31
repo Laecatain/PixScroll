@@ -11,6 +11,7 @@ import com.example.reader.data.repository.AndroidMediaRepository
 import com.example.reader.data.repository.MediaRepository
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
+import com.example.reader.util.ThumbnailBackfillManager
 import com.example.reader.util.ThumbnailManager
 import com.example.reader.util.saveImageSortMode
 import com.example.reader.util.saveImageSortOrder
@@ -95,6 +96,8 @@ class ReaderViewModel(
 
     private val thumbnailManager: ThumbnailManager? = application?.let { ThumbnailManager(it) }
     private val sortPrefs = sortPrefsFor(mediaType)
+    private val backfillManager: ThumbnailBackfillManager? =
+        thumbnailManager?.let { ThumbnailBackfillManager(it) }
 
     init {
         if (application != null) {
@@ -240,25 +243,16 @@ class ReaderViewModel(
     }
 
     private suspend fun updateVideoThumbnails(generation: Int, mgr: ThumbnailManager) {
-        val videoItems = _state.value.mediaItems
-            .withIndex()
-            .filter { (_, item) ->
-                item.isVideo && item.thumbnailPath == null && item.folderPath.isNotBlank()
+        val backfill = backfillManager ?: return
+        val items = _state.value.mediaItems
+        backfill.backfill(items) { results ->
+            if (generation != currentGeneration || isFrozen) return@backfill
+            val updates = results.mapNotNull { (index, path) ->
+                val item = items.getOrNull(index) ?: return@mapNotNull null
+                ThumbnailUpdate(index, item, path)
             }
-
-        withContext(Dispatchers.IO) {
-            videoItems.chunked(5).forEach { chunk ->
-                if (generation != currentGeneration || isFrozen) return@withContext
-
-                val generated = chunk.mapNotNull { (originalIndex, item) ->
-                    val thumbFile = mgr.generateThumbnail(item.folderPath, item.dateModified, item.size)
-                        ?: return@mapNotNull null
-                    ThumbnailUpdate(originalIndex, item, thumbFile.absolutePath)
-                }
-
-                if (generated.isNotEmpty()) {
-                    applyThumbnailUpdates(generation, generated)
-                }
+            if (updates.isNotEmpty()) {
+                applyThumbnailUpdates(generation, updates)
             }
         }
     }
@@ -287,6 +281,7 @@ class ReaderViewModel(
         val sourceItem: MediaItem,
         val thumbnailPath: String
     )
+
 
     private fun MediaItem.isSameIdentity(other: MediaItem): Boolean {
         return uri == other.uri &&

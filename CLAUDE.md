@@ -26,7 +26,7 @@ Kotlin + Jetpack Compose (Material 3), MVVM, no DI framework. Compose BOM 2025.0
 
 **Data flow**: ViewModel → `StateFlow<ReaderState>` → Composable collects via `collectAsState()`. One-way data flow: UI calls ViewModel methods → ViewModel updates `MutableStateFlow`.
 
-**Storage**: DataStore Preferences (sort prefs, theme, grid columns) + JSON file cache (folder list, hidden parents, media dimensions) in `cacheDir`.
+**Storage**: DataStore Preferences (sort prefs, theme, grid columns) + JSON file cache (folder list, hidden parents, media dimensions) + video thumbnail cache (MD5-keyed JPGs in `cacheDir/thumbnails/`) in `cacheDir`.
 
 ### Package Layout
 
@@ -43,16 +43,19 @@ com.example.reader/
 │   ├── folderlist/             # FolderListScreen + FolderListViewModel, cache-first init
 │   ├── mediagrid/              # MediaGridScreen, reuses ReaderViewModel, FastScroller
 │   ├── reader/                 # ReaderScreen + ReaderViewModel + ContinuousScrollReader + PagerReader
-│   ├── search/                 # SearchScreen + SearchViewModel, debounced keystroke search
+│   ├── search/                 # SearchScreen + SearchViewModel, debounce 300ms, folder cache + filename index
 │   ├── settings/               # SettingsScreen + SettingsViewModel, all DataStore prefs
 │   ├── player/                 # VideoPlayerScreen, ExoPlayer lifecycle-aware
 │   ├── common/FastScroller.kt  # Right-side drag scroller for LazyVerticalGrid
 │   └── theme/ThemeState.kt     # Singleton, LIGHT/DARK/AMOLED_BLACK, DataStore persistence
 └── util/
     ├── AppSettings.kt          # DataStore delegate, PreferenceKeys, AppSettingsData, save helpers
+    ├── CustomVideoFrameDecoder.kt # Coil Decoder for videos, 3-layer defense, MediaMetadataRetriever
     ├── FolderCache.kt          # JSON I/O for folder list + .nomedia hidden parents
     ├── MediaDimensionsCache.kt # JSON-persisted URI→(width,height) map, BitmapFactory bounds decode
-    └── PermissionHelper.kt     # READ_MEDIA_IMAGES/VIDEO (33+) | READ_EXTERNAL_STORAGE (legacy)
+    ├── PermissionHelper.kt     # READ_MEDIA_IMAGES/VIDEO (33+) | READ_EXTERNAL_STORAGE (legacy)
+    ├── ThumbnailManager.kt     # Disk cache for video thumbnails (MD5-keyed JPGs, cacheDir/thumbnails/)
+    └── ThumbnailBackfillManager.kt # Phase 3 batch backfill: pre-generates thumbnails on folder enter
 ```
 
 ### Navigation
@@ -76,13 +79,15 @@ Search navigates to `reader/{item.parentId}/0`. Video URIs are `Uri.encode()`'d.
 
 ### Key Layers
 
-- **`AndroidMediaRepository`** — Unified `MediaStore.Files` query, `PARENT`-based grouping, `IS_PENDING` filter (API 29+). **Hybrid Media Engine**: `getMediaByFolder()` does dual-phase scan — Phase 1 emits MediaStore results immediately, Phase 2 does `FileTreeWalk` fallback (maxDepth=4) to discover unindexed files (jpg/png/webp/heic/avif/mp4/mkv/etc.), merges deduped by absolute path, re-sorts, and re-emits. `.nomedia` detection with cached hidden parents.
+- **`AndroidMediaRepository`** — Unified `MediaStore.Files` query, `PARENT`-based grouping, `IS_PENDING` filter (API 29+). Multi-phase `getMediaByFolder()`: Phase 1 (MediaStore), Phase 2 (FileTreeWalk, maxDepth=4), Phase 3 (optional thumbnail backfill). `.nomedia` detection. **Search**: in-memory `allFoldersCache` + filename index (see docs/plan-space-for-time-optimization.md).
 - **`ReaderViewModel`** — Shared by reader and media grid. Dual-init coroutines: (1) load sort prefs from DataStore then `loadMedia()`, (2) listen for external sort changes via `settingsFlow().drop(1)`. Index correction on Phase 2 merge preserves the user's current position by URI matching.
 - **`FolderListViewModel`** — Cache-first init: reads `FolderCache` synchronously as `StateFlow` initial value (avoids Loading flash). `skipNextLoading` flag prevents first `loadFolders()` from overwriting cached success.
 - **`ThemeState`** — Singleton with callback `onModeChanged` set by `ReaderApp.onCreate()` for persistence. `init(mode)` called via `runBlocking { dataStore.data.first() }` at startup.
 - **`AppSettings`** — Top-level `Context.dataStore` delegate. `settingsFlow()` maps `DataStore<Preferences>` to `AppSettingsData`. Separate save helpers for each key.
 - **`FolderCache`** — JSON file I/O in `cacheDir` for folder list + `.nomedia` hidden parents. Written after each query, read synchronously at startup.
 - **`MediaDimensionsCache`** — JSON file mapping URI→(width,height). Populated by `BitmapFactory.Options.inJustDecodeBounds` when MediaStore lacks dimension data (unindexed files).
+- **`ThumbnailManager`** — Disk cache for video thumbnails (300px JPEG, MD5-keyed, `cacheDir/thumbnails/`).
+- **`ThumbnailBackfillManager`** — Phase 3 batch backfill in `ReaderViewModel.loadMedia()`; visible-item priority, max 50/batch.
 
 ### Reader Zoom
 
@@ -113,6 +118,10 @@ State lock via `MutableInteractionSource.collectIsDraggedAsState()` + `listState
 ### FastScroller (MediaGrid)
 
 Right-side drag scroller for `LazyGridState`. `Animatable` alpha: 0.8 while dragging/scrolling, 300ms fade-out after 1.5s idle. Page number bubble on drag. No rendering when `itemCount ≤ 1`.
+
+## Space-for-Time Optimizations
+
+Video thumbnail batch pre-generation (Phase 3) + search caching (folder list + filename index). See [docs/plan-space-for-time-optimization.md](docs/plan-space-for-time-optimization.md) for full strategy.
 
 ## Key Patterns
 

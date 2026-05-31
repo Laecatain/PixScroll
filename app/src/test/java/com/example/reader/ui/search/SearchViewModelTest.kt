@@ -15,11 +15,10 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
@@ -129,9 +128,15 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun `search error updates error state`() = runTest {
+    fun `search error in one service does not affect the other results`() = runTest {
         val repo = FakeMediaRepository()
-        repo.searchError = RuntimeException("测试错误")
+        repo.searchError = RuntimeException("搜索文件失败")
+        repo.searchFolderResults = listOf(
+            MediaFolder(
+                id = 1L, folderName = "Camera", folderPath = "/DCIM/Camera",
+                coverImageUri = null, mediaCount = 2
+            )
+        )
         val vm = SearchViewModel(repo)
 
         vm.onQueryChange("cam")
@@ -140,7 +145,8 @@ class SearchViewModelTest {
         val state = vm.state.value
         assertTrue(state.hasSearched)
         assertFalse(state.isLoading)
-        assertNotNull(state.error)
+        assertNull(state.error)  // parallel search isolates errors
+        assertTrue(state.folderResults.isNotEmpty())  // folder search still succeeded
     }
 
     @Test
@@ -155,7 +161,8 @@ class SearchViewModelTest {
         // CancellationException propagates and cancels the search job,
         // so the success/error state updates never execute
         val state = vm.state.value
-        assertFalse(state.hasSearched)
+        assertTrue(state.isLoading)
+        assertNull(state.error)
     }
 
     @Test
