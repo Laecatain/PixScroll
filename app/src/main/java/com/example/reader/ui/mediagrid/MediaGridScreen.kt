@@ -190,7 +190,7 @@ fun MediaGridScreen(
                                         viewModel.stopAllWork()
                                         item.uri?.let { uri ->
                                             val uriStr = uri.toString()
-                                            PlayerPreloader.prewarm(context, uriStr)
+                                            PlayerPreloader.prewarm(context, uriStr, item.width, item.height)
                                             onVideoClick(uriStr, item.thumbnailPath)
                                         }
                                     } else {

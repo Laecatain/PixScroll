@@ -1,6 +1,7 @@
 ﻿package com.example.reader.ui.player
 
 import android.app.Activity
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -90,9 +91,12 @@ fun VideoPlayerScreen(
         val player = when (result) {
             is TakeResult.Ready -> result.player
             is TakeResult.InProgress -> result.player
-            is TakeResult.Cold -> VideoPlayerFactory.create(context).apply {
-                setMediaItem(MediaItem.fromUri(videoUri))
-                prepare()
+            is TakeResult.Cold -> {
+                val (probedW, probedH) = probeVideoDimensions(context, videoUri)
+                VideoPlayerFactory.create(context, probedW, probedH).apply {
+                    setMediaItem(MediaItem.fromUri(videoUri))
+                    prepare()
+                }
             }
         }
         player.setAudioAttributes(
@@ -158,11 +162,27 @@ fun VideoPlayerScreen(
             override fun onRenderedFirstFrame() {
                 isFirstFrameRendered = true
                 isBuffering = false
+                val format = exoPlayer.videoFormat
+                if (format != null) {
+                    android.util.Log.i("VideoPlayer",
+                        "decoder_analytics: codec=${format.codecs ?: "unknown"}" +
+                        " resolution=${format.width}x${format.height}" +
+                        " bitrate=${format.bitrate / 1000}kbps" +
+                        " frameRate=${format.frameRate}" +
+                        " mimeType=${format.sampleMimeType}")
+                }
             }
             override fun onPlayerError(error: PlaybackException) {
                 hasError = true
                 isPlaying = false
                 isBuffering = false
+                if (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED
+                ) {
+                    android.util.Log.e("VideoPlayer",
+                        "decoder_error: code=${error.errorCode}" +
+                        " msg=${error.message} cause=${error.cause}")
+                }
                 errorMessage = when (error.errorCode) {
                     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "网络连接失败"
                     PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "文件不存在或无法访问"
@@ -513,6 +533,32 @@ private data class VideoPlayerSession(
     val player: ExoPlayer,
     val ownsPlayer: Boolean
 )
+
+/**
+ * Quickly probe video dimensions using MediaMetadataRetriever.
+ * Returns (0, 0) on failure — the factory will use HD-tier defaults.
+ */
+private fun probeVideoDimensions(context: Context, uri: Uri): Pair<Int, Int> {
+    val retriever = android.media.MediaMetadataRetriever()
+    return try {
+        when (uri.scheme) {
+            "file" -> retriever.setDataSource(uri.path)
+            "content" -> retriever.setDataSource(context, uri)
+            else -> return Pair(0, 0)
+        }
+        val w = retriever.extractMetadata(
+            android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH
+        )?.toIntOrNull() ?: 0
+        val h = retriever.extractMetadata(
+            android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT
+        )?.toIntOrNull() ?: 0
+        Pair(w, h)
+    } catch (_: RuntimeException) {
+        Pair(0, 0)
+    } finally {
+        retriever.release()
+    }
+}
 
 private fun formatTime(ms: Long): String {
     val totalSeconds = ms / 1000

@@ -90,7 +90,7 @@ object PlayerPreloader {
      *
      * 永不触碰 Active Slot。
      */
-    fun prewarm(context: Context, uri: String) {
+    fun prewarm(context: Context, uri: String, videoWidth: Int = 0, videoHeight: Int = 0) {
         if (isLowRamDevice ?: checkIsLowRam(context)) return
 
         cleanupStaleHot()
@@ -108,7 +108,7 @@ object PlayerPreloader {
                 hotSlot = Slot.Preparing(uri, current.player)
             }
             is Slot.Empty, is Slot.Consumed -> {
-                val player = VideoPlayerFactory.create(context).apply {
+                val player = VideoPlayerFactory.create(context, videoWidth, videoHeight, checkIsLowRam(context)).apply {
                     setMediaItem(MediaItem.fromUri(newUri))
                     prepare()
                     playWhenReady = false
