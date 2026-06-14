@@ -604,19 +604,25 @@ class AndroidMediaRepository(
     }
 
     /**
-     * Lightweight FileTreeWalk for folder-level aggregation (count + cover).
+     * Root-level scan for folder-level aggregation (count + cover).
+     * Only scans files directly in the folder (no subdirectories) for performance.
+     * Subdirectory files are discovered when user opens the folder (getMediaByFolder Phase 2).
      * Skips files already known to MediaStore ([knownFilePaths]).
-     * No Uri construction, no BitmapFactory decode — just file metadata.
      */
     private fun findUnindexedFilesLight(
         rootPath: String,
         knownFilePaths: Set<String>
     ): List<UnindexedFileInfo> {
+        val root = File(rootPath)
+        if (!root.isDirectory) return emptyList()
         val items = mutableListOf<UnindexedFileInfo>()
         try {
-            walkMediaFiles(rootPath).forEach { file ->
-                if (file.absolutePath in knownFilePaths) return@forEach
+            val files = root.listFiles() ?: return emptyList()
+            for (file in files) {
+                if (!file.isFile) continue
+                if (file.absolutePath in knownFilePaths) continue
                 val ext = file.extension.lowercase()
+                if (ext !in ALL_MEDIA_EXTENSIONS) continue
                 val isVid = ext in VIDEO_EXTENSIONS
                 items.add(
                     UnindexedFileInfo(
