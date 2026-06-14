@@ -2,9 +2,12 @@ package com.example.reader.data.repository
 
 import android.content.ContentResolver
 import android.content.ContentUris
+import android.database.ContentObserver
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
 import com.example.reader.data.model.MediaFolder
@@ -13,11 +16,14 @@ import com.example.reader.util.DimensionRecord
 import com.example.reader.util.FolderCache
 import com.example.reader.util.MediaDimensionsCache
 import com.example.reader.util.SearchIndex
+import com.example.reader.util.SearchableMediaEntry
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 
@@ -40,6 +46,9 @@ interface MediaRepository {
 
     fun searchMedia(query: String): Flow<List<MediaItem>>
 
+    /** Emits when MediaStore content changes (new/deleted/modified files). */
+    val mediaStoreChanges: kotlinx.coroutines.flow.SharedFlow<Unit>
+
     fun searchFolders(query: String): Flow<List<MediaFolder>>
 }
 
@@ -60,11 +69,30 @@ class AndroidMediaRepository(
     private var allFoldersCache: List<MediaFolder>? = null
     val searchIndex = SearchIndex()
 
+    private val _mediaStoreChanges = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+    )
+    override val mediaStoreChanges: SharedFlow<Unit> = _mediaStoreChanges
+
     init {
         cacheDir?.let { searchIndex.loadFromDisk(it) }
         cachedHiddenParents = cacheDir?.let { FolderCache.loadHiddenParents(it) }?.takeIf { it.isNotEmpty() }
         allFoldersCache = cacheDir?.let { FolderCache.loadFolders(it) }?.takeIf { it.isNotEmpty() }
         Log.d(TAG, "init: indexLoaded=${searchIndex.isBuilt} hiddenCached=${cachedHiddenParents != null} foldersCached=${allFoldersCache != null}")
+        registerMediaObserver()
+    }
+
+    private fun registerMediaObserver() {
+        contentResolver.registerContentObserver(
+            MediaStore.Files.getContentUri("external"),
+            true,
+            object : ContentObserver(Handler(Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) {
+                    _mediaStoreChanges.tryEmit(Unit)
+                }
+            }
+        )
     }
 
     private val fileProjection = arrayOf(
@@ -131,6 +159,7 @@ class AndroidMediaRepository(
 
         val folderMap = linkedMapOf<Long, FolderAccumulator>()
         val searchBuilder = SearchIndex.Builder()
+        val knownFilePaths = mutableSetOf<String>()
 
         cursor?.use {
             val idCol = it.getColumnIndex(MediaStore.Files.FileColumns._ID)
@@ -150,6 +179,7 @@ class AndroidMediaRepository(
             while (it.moveToNext()) {
                 val parent = if (parentCol >= 0) it.getLong(parentCol) else continue
                 val data = if (dataCol >= 0) it.getString(dataCol) ?: "" else ""
+                if (data.isNotEmpty()) knownFilePaths.add(data)
                 val fileId = if (idCol >= 0) it.getLong(idCol) else continue
                 val rawMime = if (mimeCol >= 0) it.getString(mimeCol) ?: "" else ""
                 val mediaType = if (mediaTypeCol >= 0) it.getInt(mediaTypeCol) else 0
@@ -215,6 +245,44 @@ class AndroidMediaRepository(
         searchIndex.build(searchBuilder.build())
         cacheDir?.let { searchIndex.saveToDisk(it) }
 
+        // Phase 2: FileTreeWalk per folder —补漏未被 MediaStore 索引的文件
+        for ((parentId, acc) in folderMap) {
+            currentCoroutineContext().ensureActive()
+            if (acc.folderPath.isEmpty()) continue
+            val unindexed = findUnindexedFilesLight(acc.folderPath, knownFilePaths)
+            if (unindexed.isEmpty()) continue
+            acc.mediaCount += unindexed.size
+            for (f in unindexed) {
+                if (f.isVideo) acc.hasVideo = true else acc.hasImage = true
+                // Update cover: prefer images over videos
+                if (acc.coverMimeType.startsWith("video/") && !f.isVideo) {
+                    acc.coverId = f.absPath.hashCode().toLong() or Long.MIN_VALUE // synthetic ID
+                    acc.coverMimeType = f.mime
+                    acc.coverPath = f.absPath
+                    acc.coverDateModified = f.dateModified
+                    acc.coverSize = f.size
+                    acc.coverThumbnailPath = null
+                }
+            }
+            // Add unindexed files to search index (synthetic negative IDs from path hash)
+            val syntheticEntries = unindexed.map { f ->
+                SearchableMediaEntry(
+                    id = f.absPath.hashCode().toLong() or Long.MIN_VALUE,
+                    name = File(f.absPath).name,
+                    nameLower = File(f.absPath).name.lowercase(),
+                    parentId = parentId,
+                    mimeTypeCode = SearchIndex.mimeCodeFromMime(f.mime),
+                    size = f.size,
+                    dateModified = f.dateModified,
+                    folderPath = f.absPath,
+                    orientation = 0,
+                    width = 0,
+                    height = 0
+                )
+            }
+            searchIndex.upsert(syntheticEntries)
+        }
+
         if (folderMap.isEmpty()) {
             emit(emptyList())
             allFoldersCache = emptyList()
@@ -222,11 +290,17 @@ class AndroidMediaRepository(
         }
 
         val folders = folderMap.values.map { acc ->
+            // Synthetic IDs (sign bit set) = unindexed files → use file:// URI
+            val coverUri = if (acc.coverId < 0) {
+                Uri.fromFile(File(acc.coverPath))
+            } else {
+                ContentUris.withAppendedId(unifiedUri, acc.coverId)
+            }
             MediaFolder(
                 id = acc.parent,
                 folderName = acc.folderName,
                 folderPath = acc.folderPath,
-                coverImageUri = ContentUris.withAppendedId(unifiedUri, acc.coverId),
+                coverImageUri = coverUri,
                 mediaCount = acc.mediaCount,
                 hasImages = acc.hasImage,
                 hasVideos = acc.hasVideo,
@@ -504,74 +578,111 @@ class AndroidMediaRepository(
         } catch (_: Exception) { null }
     }
 
-    /** FileTreeWalk Ã¦â€°Â«Ã¦ÂÂÃ¦Å“ÂªÃ¨Â¢Â« MediaStore Ã§Â´Â¢Ã¥Â¼â€¢Ã§Å¡â€žÃ¦â€“â€¡Ã¤Â»Â¶ */
+    /** FileTreeWalk — shared traversal logic for both getAllFolders and getMediaByFolder. */
+    /** Lightweight info from FileTreeWalk — no Uri construction, no dimension decode. */
+    private data class UnindexedFileInfo(
+        val absPath: String,
+        val mime: String,
+        val isVideo: Boolean,
+        val dateModified: Long,
+        val size: Long
+    )
+
+    /** Shared directory walk: skips hidden dirs, EXCLUDED_DIRS, .nomedia, maxDepth 4. */
+    private fun walkMediaFiles(rootPath: String): Sequence<File> {
+        val root = File(rootPath)
+        if (!root.isDirectory) return emptySequence()
+        return root.walkTopDown()
+            .maxDepth(4)
+            .onEnter { file ->
+                if (file.isDirectory) {
+                    if (file.name.startsWith(".") || file.name in EXCLUDED_DIRS) return@onEnter false
+                    if (File(file, ".nomedia").exists()) return@onEnter false
+                }
+                true
+            }
+            .filter { file -> file.isFile && file.extension.lowercase() in ALL_MEDIA_EXTENSIONS }
+    }
+
+    /**
+     * Lightweight FileTreeWalk for folder-level aggregation (count + cover).
+     * Skips files already known to MediaStore ([knownFilePaths]).
+     * No Uri construction, no BitmapFactory decode — just file metadata.
+     */
+    private fun findUnindexedFilesLight(
+        rootPath: String,
+        knownFilePaths: Set<String>
+    ): List<UnindexedFileInfo> {
+        val items = mutableListOf<UnindexedFileInfo>()
+        try {
+            walkMediaFiles(rootPath).forEach { file ->
+                if (file.absolutePath in knownFilePaths) return@forEach
+                val ext = file.extension.lowercase()
+                val isVid = ext in VIDEO_EXTENSIONS
+                items.add(
+                    UnindexedFileInfo(
+                        absPath = file.absolutePath,
+                        mime = estimateMimeType(ext),
+                        isVideo = isVid,
+                        dateModified = file.lastModified() / 1000,
+                        size = file.length()
+                    )
+                )
+            }
+        } catch (_: SecurityException) { }
+        return items
+    }
+
     private suspend fun findUnindexedFiles(
         rootPath: String,
         knownFilePaths: Set<String>,
         cacheDir: File?,
         mediaType: Int? = null
     ): List<MediaItem> {
-        val root = File(rootPath)
-        if (!root.isDirectory) return emptyList()
-
         val cache = if (cacheDir != null) MediaDimensionsCache.load(cacheDir) else null
         val recordsToSave = if (cacheDir != null) mutableMapOf<String, DimensionRecord>() else null
         val items = mutableListOf<MediaItem>()
 
         try {
-            root.walkTopDown()
-                .maxDepth(4)
-                .onEnter { file ->
-                    if (file.isDirectory) {
-                        if (file.name.startsWith(".") || file.name in EXCLUDED_DIRS) return@onEnter false
-                        if (File(file, ".nomedia").exists()) return@onEnter false
+            walkMediaFiles(rootPath).forEach { file ->
+                currentCoroutineContext().ensureActive()
+                val absPath = file.absolutePath
+                if (absPath in knownFilePaths) return@forEach
+
+                val isVideo2 = file.extension.lowercase() in VIDEO_EXTENSIONS
+                val mime = estimateMimeType(file.extension.lowercase())
+                val (w, h) = if (!isVideo2) {
+                    val uriStr = Uri.fromFile(file).toString()
+                    val cached = cache?.get(uriStr)
+                    if (cached != null) {
+                        Pair(cached.width, cached.height)
+                    } else {
+                        val decoded = decodeBounds(file.absolutePath)
+                        if (decoded != null) {
+                            recordsToSave?.put(uriStr, decoded)
+                            Pair(decoded.width, decoded.height)
+                        } else Pair(0, 0)
                     }
-                    true
-                }
-                .filter { file ->
-                    file.isFile && file.extension.lowercase() in ALL_MEDIA_EXTENSIONS
-                }
-                .forEach { file ->
-                    currentCoroutineContext().ensureActive() // Ã¦â€Â¯Ã¦Å’Â ViewModel Ã©â€â‚¬Ã¦Â¯ÂÃ¦â€”Â¶Ã¤Â¸Â­Ã¦â€“Â­Ã¦â€°Â«Ã¦ÂÂ
-                    val absPath = file.absolutePath
-                    if (absPath in knownFilePaths) return@forEach
+                } else Pair(0, 0)
 
-                    val isVideo2 = file.extension.lowercase() in VIDEO_EXTENSIONS
-                    val mime = estimateMimeType(file.extension.lowercase())
-                    val (w, h) = if (!isVideo2) {
-                        val uriStr = Uri.fromFile(file).toString()
-                        val cached = cache?.get(uriStr)
-                        if (cached != null) {
-                            Pair(cached.width, cached.height)
-                        } else {
-                            val decoded = decodeBounds(file.absolutePath)
-                            if (decoded != null) {
-                                recordsToSave?.put(uriStr, decoded)
-                                Pair(decoded.width, decoded.height)
-                            } else Pair(0, 0)
-                        }
-                    } else Pair(0, 0)
-
-                    items.add(
-                        MediaItem(
-                            uri = Uri.fromFile(file),
-                            name = file.name,
-                            mimeType = mime,
-                            size = file.length(),
-                            dateModified = file.lastModified() / 1000,
-                            folderPath = absPath,
-                            parentId = 0,
-                            orientation = 0,
-                            mediaType = if (isVideo2) MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
-                                else MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE,
-                            width = w,
-                            height = h
-                        )
+                items.add(
+                    MediaItem(
+                        uri = Uri.fromFile(file),
+                        name = file.name,
+                        mimeType = mime,
+                        size = file.length(),
+                        dateModified = file.lastModified() / 1000,
+                        folderPath = absPath,
+                        parentId = 0,
+                        orientation = 0,
+                        mediaType = if (isVideo2) MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                            else MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE,
+                        width = w,
+                        height = h
                     )
-                }
-        } catch (_: SecurityException) {
-            // Ã¦â€”Â Ã¦ÂÆ’Ã©â„¢ÂÃ¨Â¯Â»Ã¥Ââ€“Ã¦â€”Â¶Ã©Ââ„¢Ã©Â»ËœÃ¨Â·Â³Ã¨Â¿â€¡
-        }
+                )
+            }
+        } catch (_: SecurityException) { }
 
         if (recordsToSave != null && recordsToSave.isNotEmpty() && cache != null) {
             cache.putAll(recordsToSave)

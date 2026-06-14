@@ -41,6 +41,9 @@ class SearchIndex {
             /* 14 */ "video/quicktime",
         )
 
+        /** Public accessor for MIME-to-code conversion (used by MediaRepository for unindexed files). */
+        fun mimeCodeFromMime(mime: String): Byte = mimeCode(mime)
+
         private fun mimeCode(mime: String): Byte = when {
             mime.startsWith("image/jpeg") -> 1
             mime.startsWith("image/png") -> 2
@@ -182,6 +185,9 @@ class SearchIndex {
     @Volatile
     private var entries: List<SearchableMediaEntry> = emptyList()
 
+    /** Guard for read-modify-write operations (upsert, removeByIds). */
+    private val lock = Any()
+
     val isBuilt: Boolean get() = entries.isNotEmpty()
     val size: Int get() = entries.size
 
@@ -192,12 +198,40 @@ class SearchIndex {
      * scan completes. The list must be fully constructed (no mutability leaks).
      */
     fun build(newEntries: List<SearchableMediaEntry>) {
-        entries = newEntries
+        synchronized(lock) { entries = newEntries }
     }
+
+    /** Returns a read-only snapshot of current entries. */
+    fun snapshot(): List<SearchableMediaEntry> = entries
 
     /** Wipes the index. */
     fun clear() {
-        entries = emptyList()
+        synchronized(lock) { entries = emptyList() }
+    }
+
+    /**
+     * Incrementally upserts [newEntries] into the index.
+     * Entries with matching IDs are replaced; new IDs are appended.
+     * Thread-safe: read-modify-write under [lock].
+     */
+    fun upsert(newEntries: List<SearchableMediaEntry>) {
+        if (newEntries.isEmpty()) return
+        synchronized(lock) {
+            val map = entries.associateBy { it.id }.toMutableMap()
+            newEntries.forEach { map[it.id] = it }
+            entries = map.values.toList()
+        }
+    }
+
+    /**
+     * Removes entries whose IDs are in [ids].
+     * Thread-safe: read-modify-write under [lock].
+     */
+    fun removeByIds(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        synchronized(lock) {
+            entries = entries.filter { it.id !in ids }
+        }
     }
 
     // ── Search (pure in-memory) ──
@@ -221,8 +255,14 @@ class SearchIndex {
     ): MediaItem {
         val mime = mimeFromCode(entry.mimeTypeCode)
         val isVideo = mime.startsWith("video/")
+        // Negative IDs are synthetic (from FileTreeWalk for unindexed files) — use file:// URI
+        val uri = when {
+            entry.id < 0 -> Uri.fromFile(File(entry.folderPath))
+            unifiedUri != null -> ContentUris.withAppendedId(unifiedUri, entry.id)
+            else -> null
+        }
         return MediaItem(
-            uri = if (unifiedUri != null) ContentUris.withAppendedId(unifiedUri, entry.id) else null,
+            uri = uri,
             name = entry.name,
             mimeType = mime,
             size = entry.size,
@@ -254,7 +294,10 @@ class SearchIndex {
         if (snapshot.isEmpty()) return
         try {
             val json = encodeToCompactJson(snapshot)
-            File(cacheDir, CACHE_FILE).writeText(json)
+            val target = File(cacheDir, CACHE_FILE)
+            val tmp = File(cacheDir, "$CACHE_FILE.tmp")
+            tmp.writeText(json)
+            tmp.renameTo(target)
         } catch (_: Exception) { }
     }
 

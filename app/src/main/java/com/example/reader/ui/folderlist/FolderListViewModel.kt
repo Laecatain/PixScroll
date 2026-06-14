@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -106,6 +107,15 @@ class FolderListViewModel(
                         loadFolders()
                     }
                 }
+            }
+            // ③ 响应 MediaStore 变化（新拍照、删除文件等），debounce 1s 合并连续信号
+            viewModelScope.launch {
+                repository.mediaStoreChanges
+                    .debounce(1000)
+                    .collect {
+                        Log.d(TAG, "MediaStore changed, auto-refreshing folders")
+                        loadFolders()
+                    }
             }
         } else {
             // 无 Application（测试）: 默认排序首次加载

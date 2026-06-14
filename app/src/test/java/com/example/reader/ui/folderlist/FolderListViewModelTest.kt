@@ -3,7 +3,11 @@ package com.example.reader.ui.folderlist
 import com.example.reader.data.model.MediaFolder
 import com.example.reader.data.repository.FakeMediaRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.*
@@ -82,5 +86,24 @@ class FolderListViewModelTest {
         val vm = FolderListViewModel(repo)
         // CancellationException 被 rethrow，状态保持 loadFolders 设置的 Loading
         assertTrue(vm.state.value is FolderUiState.Loading)
+    }
+
+    @Test
+    fun `mediaStoreChanges emits correctly`() = runTest {
+        val repo = FakeMediaRepository()
+        val emitted = mutableListOf<Unit>()
+        val job = launch(kotlinx.coroutines.Dispatchers.Unconfined) {
+            repo.mediaStoreChanges.collect { emitted.add(it) }
+        }
+
+        repo.emitMediaStoreChange()
+        testScheduler.advanceUntilIdle()
+        assertEquals(1, emitted.size)
+
+        repo.emitMediaStoreChange()
+        testScheduler.advanceUntilIdle()
+        assertEquals(2, emitted.size)
+
+        job.cancel()
     }
 }

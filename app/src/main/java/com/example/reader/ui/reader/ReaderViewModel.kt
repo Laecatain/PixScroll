@@ -1,6 +1,7 @@
 package com.example.reader.ui.reader
 
 import android.app.Application
+import android.util.Log
 // MediaStore constants: IMAGE=1, VIDEO=3
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
@@ -26,6 +27,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -141,6 +143,15 @@ class ReaderViewModel(
                         loadMedia()
                     }
                 }
+            }
+            // ③ respond to MediaStore changes (new photos, deleted files), debounce 1s
+            viewModelScope.launch {
+                repository.mediaStoreChanges
+                    .debounce(1000)
+                    .collect {
+                        Log.d("ReaderVM", "MediaStore changed, auto-refreshing media")
+                        loadMedia()
+                    }
             }
         } else {
             // no Application (test): default sort, load once

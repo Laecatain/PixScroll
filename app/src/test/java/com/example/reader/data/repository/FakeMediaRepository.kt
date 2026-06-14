@@ -3,9 +3,15 @@ package com.example.reader.data.repository
 import com.example.reader.data.model.MediaFolder
 import com.example.reader.data.model.MediaItem
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.flowOf
 
 class FakeMediaRepository : MediaRepository {
+
+    private val _mediaStoreChanges = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    override val mediaStoreChanges: SharedFlow<Unit> = _mediaStoreChanges
+    fun emitMediaStoreChange() { _mediaStoreChanges.tryEmit(Unit) }
 
     var folders: List<MediaFolder> = emptyList()
     var mediaItems: Map<Long, List<MediaItem>> = emptyMap()

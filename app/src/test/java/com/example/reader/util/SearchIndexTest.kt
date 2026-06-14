@@ -305,7 +305,166 @@ class SearchIndexTest {
         assertTrue("video/quicktime" in mimes)
     }
 
+    // ── upsert tests ──
+
+    @Test
+    fun `upsert adds new entries to index`() {
+        val idx = buildSampleIndex()
+        assertEquals(3, idx.size)
+
+        val newEntry = makeEntry(10, "new.jpg")
+        idx.upsert(listOf(newEntry))
+        assertEquals(4, idx.size)
+        assertEquals(1, idx.search("new").size)
+    }
+
+    @Test
+    fun `upsert replaces existing entries with matching IDs`() {
+        val idx = buildSampleIndex()
+        val updatedCat = makeEntry(1, "cat_renamed.jpg")
+        idx.upsert(listOf(updatedCat))
+
+        assertEquals(3, idx.size) // no new entry added
+        assertEquals(0, idx.search("cat.jpg").size) // old name gone
+        assertEquals(1, idx.search("cat_renamed").size) // new name found
+    }
+
+    @Test
+    fun `upsert with mix of new and existing IDs`() {
+        val idx = buildSampleIndex()
+        idx.upsert(listOf(makeEntry(1, "cat_v2.jpg"), makeEntry(99, "brand_new.png")))
+        assertEquals(4, idx.size)
+        assertEquals(1, idx.search("cat_v2").size)
+        assertEquals(1, idx.search("brand_new").size)
+    }
+
+    @Test
+    fun `upsert with empty list is no-op`() {
+        val idx = buildSampleIndex()
+        idx.upsert(emptyList())
+        assertEquals(3, idx.size)
+    }
+
+    @Test
+    fun `upsert preserves searchability of untouched entries`() {
+        val idx = buildSampleIndex()
+        idx.upsert(listOf(makeEntry(99, "new.jpg")))
+        // Original entries still searchable
+        assertEquals(1, idx.search("cat").size)
+        assertEquals(1, idx.search("dog").size)
+        assertEquals(1, idx.search("zoo").size)
+    }
+
+    @Test
+    fun `upsert followed by search finds upserted entries`() {
+        val idx = SearchIndex()
+        idx.build(emptyList())
+        assertTrue(idx.search("video").isEmpty())
+
+        idx.upsert(listOf(makeEntry(1, "video.mp4", mime = "video/mp4")))
+        assertEquals(1, idx.search("video").size)
+    }
+
+    // ── removeByIds tests ──
+
+    @Test
+    fun `removeByIds removes matching entries`() {
+        val idx = buildSampleIndex()
+        idx.removeByIds(setOf(1, 3))
+        assertEquals(1, idx.size)
+        assertEquals(0, idx.search("cat").size)
+        assertEquals(0, idx.search("zoo").size)
+        assertEquals(1, idx.search("dog").size)
+    }
+
+    @Test
+    fun `removeByIds with non-existent IDs is no-op`() {
+        val idx = buildSampleIndex()
+        idx.removeByIds(setOf(999, 1000))
+        assertEquals(3, idx.size)
+    }
+
+    @Test
+    fun `removeByIds with empty set is no-op`() {
+        val idx = buildSampleIndex()
+        idx.removeByIds(emptySet())
+        assertEquals(3, idx.size)
+    }
+
+    @Test
+    fun `removeByIds removes all entries results in empty index`() {
+        val idx = buildSampleIndex()
+        idx.removeByIds(setOf(1, 2, 3))
+        assertEquals(0, idx.size)
+        assertFalse(idx.isBuilt)
+        assertTrue(idx.search("cat").isEmpty())
+    }
+
+    // ── snapshot tests ──
+
+    @Test
+    fun `snapshot returns current entries after build`() {
+        val idx = buildSampleIndex()
+        val snap = idx.snapshot()
+        assertEquals(3, snap.size)
+        assertEquals("cat.jpg", snap[0].name)
+    }
+
+    @Test
+    fun `snapshot reflects upsert changes`() {
+        val idx = buildSampleIndex()
+        idx.upsert(listOf(makeEntry(99, "added.jpg")))
+        val snap = idx.snapshot()
+        assertEquals(4, snap.size)
+    }
+
+    @Test
+    fun `snapshot reflects removeByIds changes`() {
+        val idx = buildSampleIndex()
+        idx.removeByIds(setOf(1))
+        val snap = idx.snapshot()
+        assertEquals(2, snap.size)
+    }
+
+    // ── toMediaItem with negative ID (unindexed files) ──
+
+    @Test
+    fun `toMediaItem with negative ID uses file URI not content URI`() {
+        val idx = SearchIndex()
+        val negativeId = "/storage/test.vdat".hashCode().toLong() or Long.MIN_VALUE
+        idx.upsert(listOf(makeEntry(negativeId, "test.vdat", path = "/storage/test.vdat", mime = "video/mp4")))
+
+        val entry = idx.search("test")[0]
+        assertTrue(entry.id < 0)
+
+        val unifiedUri = android.net.Uri.parse("content://media/external/file")
+        val item = idx.toMediaItem(entry, unifiedUri)
+        // Negative ID should NOT produce a content:// URI (which would be invalid)
+        assertFalse("Should not be content:// for unindexed files",
+            item.uri.toString().startsWith("content://"))
+    }
+
     // Helpers
+
+    private fun makeEntry(
+        id: Long,
+        name: String,
+        parentId: Long = 100,
+        mime: String = "image/jpeg",
+        path: String = "/DCIM/$name"
+    ) = SearchableMediaEntry(
+        id = id,
+        name = name,
+        nameLower = name.lowercase(),
+        parentId = parentId,
+        mimeTypeCode = SearchIndex.mimeCodeFromMime(mime),
+        size = 50000,
+        dateModified = 1000,
+        folderPath = path,
+        orientation = 0,
+        width = 1920,
+        height = 1080
+    )
 
     private fun buildSampleIndex(): SearchIndex {
         val idx = SearchIndex()
