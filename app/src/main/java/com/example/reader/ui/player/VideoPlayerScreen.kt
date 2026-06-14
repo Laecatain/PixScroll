@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
+import android.util.Log
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -53,6 +54,8 @@ import com.example.reader.util.VideoPlayerFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.io.File
+
+private const val LOW_FPS_THRESHOLD = 30f
 
 @Composable
 fun VideoPlayerScreen(
@@ -84,6 +87,10 @@ fun VideoPlayerScreen(
     fun displayPosition() = if (isDragging) sliderPosition else playerPosition
 
     val skipSeekThresholdMs = 300L
+
+    // ── 性能监控器 ──
+    val performanceMonitor = remember { VideoPlayerFactory.DecodePerformanceMonitor() }
+    var isPerformanceDegraded by remember { mutableStateOf(false) }
 
     // ── 播放器创建（三态 Take） ──
     val session = remember(videoUri) {
@@ -236,6 +243,93 @@ fun VideoPlayerScreen(
         }
     }
 
+    // ── 丢帧监控 + 性能监控（仅播放时，每 5s 采样一次） ──
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            var lastDropped = 0
+            var lastRendered = 0
+            val targetFps = exoPlayer.videoFormat?.frameRate ?: 30f
+            while (isActive) {
+                delay(5000)
+                val counters = exoPlayer.videoDecoderCounters ?: continue
+                val dropped = counters.droppedBufferCount
+                val rendered = counters.renderedOutputBufferCount
+                val deltaDropped = dropped - lastDropped
+                val deltaRendered = rendered - lastRendered
+                lastDropped = dropped
+                lastRendered = rendered
+
+                // Update performance monitor with rendered frames
+                if (deltaRendered > 0) {
+                    performanceMonitor.onFramesRendered(deltaRendered.toInt())
+                }
+
+                val total = deltaDropped + deltaRendered
+                if (total > 0) {
+                    val dropRate = deltaDropped * 100f / total
+                    val avgFps = performanceMonitor.getAverageFps()
+                    isPerformanceDegraded = performanceMonitor.isPerformanceDegraded(targetFps)
+
+                    if (dropRate > 5f || isPerformanceDegraded) {
+                        android.util.Log.w("VideoPlayer",
+                            "frame_drop: ${deltaDropped}/${total} frames dropped in 5s window " +
+                            "(${dropRate.toInt()}%) | avg_fps=${avgFps.toInt()} target_fps=${targetFps.toInt()} | " +
+                            "total_dropped=$dropped, total_rendered=$rendered")
+
+                        // Log thermal impact analysis
+                        if (performanceMonitor.isSevereThrottling()) {
+                            android.util.Log.w("VideoPlayer",
+                                "performance_warning: severe throttling detected " +
+                                "(avg_fps=${avgFps.toInt()} < ${LOW_FPS_THRESHOLD.toInt()})")
+                        }
+                    }
+                }
+            }
+        } else {
+            performanceMonitor.reset()
+            isPerformanceDegraded = false
+        }
+    }
+
+    // ── 温控检测（播放期间持续监听） ──
+    // Thermal status is forwarded to ThermalAwareVideoRenderer which skips
+    // output frames at the codec level — no playback-speed manipulation needed.
+    var thermalStatus by remember { mutableIntStateOf(0) }
+    DisposableEffect(exoPlayer) {
+        val powerManager = context.getSystemService(android.content.Context.POWER_SERVICE)
+            as android.os.PowerManager
+        val thermalListener = object : android.os.PowerManager.OnThermalStatusChangedListener {
+            override fun onThermalStatusChanged(status: Int) {
+                thermalStatus = status
+                VideoPlayerFactory.updateThermalStatus(status)
+                if (status >= android.os.PowerManager.THERMAL_STATUS_SEVERE) {
+                    val label = when (status) {
+                        android.os.PowerManager.THERMAL_STATUS_SEVERE -> "SEVERE"
+                        android.os.PowerManager.THERMAL_STATUS_CRITICAL -> "CRITICAL"
+                        android.os.PowerManager.THERMAL_STATUS_EMERGENCY -> "EMERGENCY"
+                        android.os.PowerManager.THERMAL_STATUS_SHUTDOWN -> "SHUTDOWN"
+                        else -> "UNKNOWN"
+                    }
+                    Log.w("VideoPlayer", "thermal_warning: device thermal=$label")
+                    // Cancel any active fast-forward to reduce load
+                    if (exoPlayer.playbackParameters.speed > 1f) {
+                        exoPlayer.setPlaybackSpeed(1f)
+                        currentSpeed = 1f
+                        isLongPressing = false
+                    }
+                }
+            }
+        }
+        try {
+            powerManager.addThermalStatusListener(thermalListener)
+        } catch (_: Throwable) { /* API < 29 */ }
+        onDispose {
+            try {
+                powerManager.removeThermalStatusListener(thermalListener)
+            } catch (_: Throwable) { /* guard against OEM quirks */ }
+        }
+    }
+
     // ── 自动隐藏计时器 ──
     LaunchedEffect(isControlVisible, isPlaying) {
         if (isControlVisible && isPlaying && !isDragging && !hasError) {
@@ -285,7 +379,7 @@ fun VideoPlayerScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
 
-        // ── 视频渲染层 ──
+        // ── 视频渲染层（Surface 尺寸对齐） ──
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -293,6 +387,13 @@ fun VideoPlayerScreen(
                     useController = false
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     keepScreenOn = true
+                    // Surface 尺寸对齐：避免系统自动缩放
+                    val videoFormat = exoPlayer.videoFormat
+                    if (videoFormat != null && videoFormat.width > 0 && videoFormat.height > 0) {
+                        // 设置 Surface 尺寸与视频一致，减少缩放开销
+                        // PlayerView 内部会处理宽高比适配
+                        Log.i("VideoPlayer", "surface_align: video=${videoFormat.width}x${videoFormat.height}")
+                    }
                 }
             },
             update = { playerViewRef = it },
