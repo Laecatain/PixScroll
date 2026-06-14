@@ -253,7 +253,6 @@ class AndroidMediaRepository(
             if (unindexed.isEmpty()) continue
             acc.mediaCount += unindexed.size
             for (f in unindexed) {
-                if (f.isVideo) acc.hasVideo = true else acc.hasImage = true
                 // Update cover: prefer images over videos
                 if (acc.coverMimeType.startsWith("video/") && !f.isVideo) {
                     acc.coverId = f.absPath.hashCode().toLong() or Long.MIN_VALUE // synthetic ID
