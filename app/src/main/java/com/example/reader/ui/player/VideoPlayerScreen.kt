@@ -291,6 +291,54 @@ fun VideoPlayerScreen(
         }
     }
 
+    // ── 刷新率适配（播放时降到 60Hz，退出时恢复） ──
+    val activity = remember { context as? Activity }
+    val displayMode60Hz = remember {
+        val display = activity?.windowManager?.defaultDisplay
+        val modes = display?.supportedModes ?: emptyArray()
+        // 找 60Hz 模式（fps 在 59~61 之间）
+        modes.find { mode -> mode.refreshRate in 59f..61f }
+    }
+    val originalModeId = remember {
+        val display = activity?.windowManager?.defaultDisplay
+        display?.mode?.modeId ?: 0
+    }
+    LaunchedEffect(isPlaying) {
+        val window = activity?.window ?: return@LaunchedEffect
+        val mode60 = displayMode60Hz ?: return@LaunchedEffect
+        if (isPlaying) {
+            // 播放时切到 60Hz，减少功耗和帧率不匹配导致的卡顿感
+            val params = window.attributes
+            if (params.preferredDisplayModeId != mode60.modeId) {
+                params.preferredDisplayModeId = mode60.modeId
+                window.attributes = params
+                Log.i("VideoPlayer", "display_mode: switched to 60Hz (modeId=${mode60.modeId})")
+            }
+        } else {
+            // 停止播放时恢复原始刷新率
+            val params = window.attributes
+            if (params.preferredDisplayModeId != originalModeId) {
+                params.preferredDisplayModeId = originalModeId
+                window.attributes = params
+                Log.i("VideoPlayer", "display_mode: restored to original (modeId=$originalModeId)")
+            }
+        }
+    }
+    // 离开播放页时确保恢复原始刷新率
+    DisposableEffect(Unit) {
+        onDispose {
+            val window = activity?.window
+            if (window != null && originalModeId != 0) {
+                val params = window.attributes
+                if (params.preferredDisplayModeId != originalModeId) {
+                    params.preferredDisplayModeId = originalModeId
+                    window.attributes = params
+                    Log.i("VideoPlayer", "display_mode: restored on dispose (modeId=$originalModeId)")
+                }
+            }
+        }
+    }
+
     // ── 温控检测（播放期间持续监听） ──
     // Thermal status is forwarded to ThermalAwareVideoRenderer which skips
     // output frames at the codec level — no playback-speed manipulation needed.
