@@ -156,7 +156,7 @@ class FolderListViewModel(
 
     private fun loadFolders() {
         loadJob?.cancel()
-        if (!skipNextLoading) {
+        if (!skipNextLoading && _state.value !is FolderUiState.Success) {
             _state.value = FolderUiState.Loading
         }
         skipNextLoading = false
