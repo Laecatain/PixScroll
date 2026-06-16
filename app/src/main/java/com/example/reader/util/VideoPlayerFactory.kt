@@ -20,12 +20,6 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
 object VideoPlayerFactory {
     private const val TAG = "VideoPlayer"
 
-    // Operating rate limits to avoid EINVAL on some Qualcomm chips
-    // while keeping enough headroom for smooth 60fps playback.
-    private const val MAX_OPERATING_RATE = 120.0f
-    private const val DEFAULT_OPERATING_RATE = 60.0f
-    private const val FALLBACK_OPERATING_RATE = 30.0f
-
     // Frame rate monitoring thresholds
     private const val LOW_FPS_THRESHOLD = 30f  // Below this = severe throttling
     private const val TARGET_FPS_MULTIPLIER = 0.7f  // 70% of target = acceptable
@@ -96,48 +90,7 @@ object VideoPlayerFactory {
             ) {
                 val renderer = ThermalAwareVideoRenderer(
                     context,
-                    object : MediaCodecAdapter.Factory {
-                        private val delegate = MediaCodecAdapter.Factory.DEFAULT
-                        override fun createAdapter(
-                            configuration: MediaCodecAdapter.Configuration
-                        ): MediaCodecAdapter {
-                            // Keep original operating-rate but cap to a safe range.
-                            // Some Qualcomm Codec2 HALs reject configure() with EINVAL
-                            // when operating-rate is too high for high-res content,
-                            // but setting it to 1.0 causes severe frame drops.
-                            val original = configuration.mediaFormat
-                            val fmt = android.media.MediaFormat(original)
-                            val originalRate = try {
-                                original.getFloat(android.media.MediaFormat.KEY_OPERATING_RATE)
-                            } catch (_: Exception) { 0f }
-                            // Cap at 120.0 to avoid EINVAL on some chips while keeping
-                            // enough headroom for 60fps content.
-                            val safeRate = if (originalRate > 0f) {
-                                originalRate.coerceIn(1.0f, MAX_OPERATING_RATE)
-                            } else {
-                                DEFAULT_OPERATING_RATE
-                            }
-                            fmt.setFloat(android.media.MediaFormat.KEY_OPERATING_RATE, safeRate)
-                            Log.i(TAG, "CONFIGURE: codec=${configuration.codecInfo.name}")
-                            Log.i(TAG, "operating-rate: original=$originalRate, safe=$safeRate")
-                            try {
-                                val newConfig = MediaCodecAdapter.Configuration.createForVideoDecoding(
-                                    configuration.codecInfo, fmt, configuration.format,
-                                    configuration.surface, configuration.crypto
-                                )
-                                return delegate.createAdapter(newConfig)
-                            } catch (e: Exception) {
-                                // If configure fails with EINVAL, try with lower operating-rate
-                                Log.w(TAG, "Configure failed with rate=$safeRate, trying lower rate")
-                                fmt.setFloat(android.media.MediaFormat.KEY_OPERATING_RATE, FALLBACK_OPERATING_RATE)
-                                val fallbackConfig = MediaCodecAdapter.Configuration.createForVideoDecoding(
-                                    configuration.codecInfo, fmt, configuration.format,
-                                    configuration.surface, configuration.crypto
-                                )
-                                return delegate.createAdapter(fallbackConfig)
-                            }
-                        }
-                    },
+                    MediaCodecAdapter.Factory.DEFAULT,
                     mediaCodecSelector,
                     allowedVideoJoiningTimeMs,
                     playClearSamplesWithoutKeys,
@@ -383,88 +336,5 @@ object VideoPlayerFactory {
             currentFps = 0f
             fpsHistory.clear()
         }
-    }
-}
-
-// ── 4K+ 高性能渲染 ──────────────────────────────────────────────
-
-/**
- * Custom [DefaultRenderersFactory] that replaces the default video renderer
- * with [BoostedVideoRenderer] for 4K+ content. The boosted renderer applies
- * a 1.5x operating rate hint to the hardware decoder, requesting higher
- * clock frequency to sustain high-bitrate decode throughput.
- */
-private class HighPerformanceRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
-
-    override fun buildVideoRenderers(
-        context: Context,
-        extensionRendererMode: Int,
-        mediaCodecSelector: MediaCodecSelector,
-        playClearSamplesWithoutKeys: Boolean,
-        eventHandler: Handler,
-        eventListener: VideoRendererEventListener,
-        allowedVideoJoiningTimeMs: Long,
-        out: java.util.ArrayList<Renderer>
-    ) {
-        out.add(
-            BoostedVideoRenderer(
-                context,
-                MediaCodecAdapter.Factory.DEFAULT,
-                mediaCodecSelector,
-                allowedVideoJoiningTimeMs,
-                playClearSamplesWithoutKeys,
-                eventHandler,
-                eventListener,
-                MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
-            )
-        )
-    }
-
-    companion object {
-        private const val MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY = 50
-    }
-}
-
-/**
- * [MediaCodecVideoRenderer] subclass that overrides [getCodecOperatingRateV23]
- * to apply a 1.5x boost. This hints the SoC to clock up the decoder pipeline,
- * reducing frame drops for sustained high-bitrate playback (4K 60fps 80Mbps+).
- *
- * The boost is multiplicative: if the base rate would be 60.0 (for 60fps content),
- * the effective rate becomes 90.0, telling the hardware to run 50% faster than
- * real-time requirement.
- */
-private class BoostedVideoRenderer(
-    context: Context,
-    codecAdapterFactory: MediaCodecAdapter.Factory,
-    mediaCodecSelector: MediaCodecSelector,
-    allowedJoiningTimeMs: Long,
-    playClearSamplesWithoutKeys: Boolean,
-    eventHandler: Handler,
-    eventListener: VideoRendererEventListener,
-    maxDroppedVideoFrameCountToNotify: Int
-) : MediaCodecVideoRenderer(
-    context,
-    codecAdapterFactory,
-    mediaCodecSelector,
-    allowedJoiningTimeMs,
-    playClearSamplesWithoutKeys,
-    eventHandler,
-    eventListener,
-    maxDroppedVideoFrameCountToNotify
-) {
-    override fun getCodecOperatingRateV23(
-        operatingRate: Float,
-        inputFormat: Format,
-        streamFormats: Array<out Format>
-    ): Float {
-        val base = super.getCodecOperatingRateV23(operatingRate, inputFormat, streamFormats)
-        val result = if (base < 1.0f) (base * OPERATING_RATE_BOOST).coerceAtMost(1.0f) else base
-        Log.i("VideoPlayer", "operating_rate: base=$base, result=$result, fps=${inputFormat.frameRate}")
-        return result
-    }
-
-    companion object {
-        private const val OPERATING_RATE_BOOST = 1.5f
     }
 }
