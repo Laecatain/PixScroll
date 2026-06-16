@@ -55,7 +55,7 @@ interface MediaRepository {
 private val IMAGE_EXTENSIONS = setOf(
     "jpg", "jpeg", "png", "gif", "webp", "bmp", "avif", "heic", "heif"
 )
-private val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "avi", "mov", "wmv", "flv", "3gp", "vdat")
+private val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "avi", "mov", "wmv", "flv", "3gp")
 private val ALL_MEDIA_EXTENSIONS = IMAGE_EXTENSIONS + VIDEO_EXTENSIONS
 
 class AndroidMediaRepository(
@@ -463,7 +463,6 @@ class AndroidMediaRepository(
         mediaType: Int? = null
     ): Pair<List<MediaItem>, String> {
         val baseSelection = if (mediaType != null) {
-            // Ã¦Å’â€°Ã¦Å’â€¡Ã¥Â®Å¡Ã§Â±Â»Ã¥Å¾â€¹Ã¨Â¿â€¡Ã¦Â»Â¤
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 "${MediaStore.Files.FileColumns.PARENT} = ?" +
                     " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?" +
@@ -473,7 +472,6 @@ class AndroidMediaRepository(
                     " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?"
             }
         } else {
-            // Ã¤Â¸ÂÃ¨Â¿â€¡Ã¦Â»Â¤Ã¯Â¼Å’Ã¦Å¸Â¥Ã¦â€°â‚¬Ã¦Å“â€°Ã¥â€ºÂ¾Ã§â€°â€¡+Ã¨Â§â€ Ã©Â¢â€˜
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 "${MediaStore.Files.FileColumns.PARENT} = ?" +
                     " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
@@ -725,7 +723,6 @@ class AndroidMediaRepository(
         "webm" -> "video/webm"
         "avi" -> "video/x-msvideo"
         "mov" -> "video/quicktime"
-        "vdat" -> "video/mp4"
         else -> "application/octet-stream"
     }
 

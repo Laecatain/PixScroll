@@ -431,8 +431,8 @@ class SearchIndexTest {
     @Test
     fun `toMediaItem with negative ID uses file URI not content URI`() {
         val idx = SearchIndex()
-        val negativeId = "/storage/test.vdat".hashCode().toLong() or Long.MIN_VALUE
-        idx.upsert(listOf(makeEntry(negativeId, "test.vdat", path = "/storage/test.vdat", mime = "video/mp4")))
+        val negativeId = "/storage/test.mp4".hashCode().toLong() or Long.MIN_VALUE
+        idx.upsert(listOf(makeEntry(negativeId, "test.mp4", path = "/storage/test.mp4", mime = "video/mp4")))
 
         val entry = idx.search("test")[0]
         assertTrue(entry.id < 0)
