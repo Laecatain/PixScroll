@@ -1,4 +1,4 @@
-package com.example.reader.ui.player
+﻿package com.example.reader.ui.player
 
 import android.app.Activity
 import android.content.Context
@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,8 +58,6 @@ import kotlinx.coroutines.isActive
 import java.io.File
 
 private const val LOW_FPS_THRESHOLD = 30f
-private const val HIGH_RES_THRESHOLD = 1080
-
 /** Decoder-related errors that can be recovered by falling back to MediaPlayer. */
 private fun isDecoderError(error: PlaybackException): Boolean =
     error.errorCode in setOf(
@@ -75,16 +74,12 @@ fun VideoPlayerScreen(
 ) {
     val context = LocalContext.current
 
-    // ── 分辨率路由：高分辨率视频走 MediaPlayer ──
+    // -- Probe video dimensions for buffer tier selection --
     val (videoWidth, videoHeight) = remember(videoUri) {
         probeVideoDimensions(context, videoUri)
     }
-    val longestEdge = maxOf(videoWidth, videoHeight)
-    if (longestEdge > HIGH_RES_THRESHOLD) {
-        Log.i("VideoPlayer", "high_res_detected: ${videoWidth}x${videoHeight}, routing to MediaPlayer")
-        MediaPlayerScreen(videoUri = videoUri, thumbnailPath = thumbnailPath, onBack = onBack)
-        return
-    }
+    // Resolution routing removed: ExoPlayer tries all videos first.
+    // High-res videos that fail decoder init fall back via shouldFallbackToMediaPlayer.
 
     // ── 核心状态（在路由判断之前声明，供降级路径使用）──
     var shouldFallbackToMediaPlayer by remember { mutableStateOf(false) }
@@ -95,7 +90,7 @@ fun VideoPlayerScreen(
         return
     }
 
-    // ── 以下为 ExoPlayer 路径（≤ 1080p） ──
+    // -- ExoPlayer path --
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val uriString = remember { videoUri.toString() }
 
@@ -199,7 +194,7 @@ fun VideoPlayerScreen(
             }
             override fun onPlayerError(error: PlaybackException) {
                 if (isDecoderError(error)) {
-                    Log.w("VideoPlayer", "decoder_error: ${error.errorCode}, falling back to MediaPlayer")
+                    Log.e("VideoPlayer", "decoder_error: ${error.errorCode}, falling back to MediaPlayer")
                     // Release ExoPlayer here. Compose will still call onDispose when
                     // DisposableEffect leaves the tree on recomposition, so we set
                     // releasedInError=true to skip the duplicate cleanup.
@@ -557,6 +552,49 @@ fun VideoPlayerScreen(
                     fontSize = 14.sp,
                     fontFamily = FontFamily.Monospace
                 )
+            }
+        }
+
+
+        // ── Performance degradation banner ──
+        if (isPerformanceDegraded && !hasError) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 48.dp)
+                    .clickable {
+                        try {
+                            val intent = android.content.Intent(
+                                android.content.Intent.ACTION_VIEW
+                            ).apply {
+                                setDataAndType(videoUri, "video/*")
+                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    },
+                shape = RoundedCornerShape(8.dp),
+                color = Color.Black.copy(alpha = 0.75f),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "播放卡顿，建议使用系统播放器",
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 13.sp
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "打开",
+                        color = Color(0xFF4FC3F7),
+                        fontSize = 13.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                    )
+                }
             }
         }
 

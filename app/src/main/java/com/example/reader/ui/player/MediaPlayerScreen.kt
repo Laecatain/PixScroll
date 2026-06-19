@@ -1,12 +1,12 @@
-package com.example.reader.ui.player
+﻿package com.example.reader.ui.player
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
-import android.media.PlaybackParams
 import android.net.Uri
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.view.Surface
+import android.view.TextureView
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -51,9 +51,10 @@ import java.io.File
 private const val TAG = "MediaPlayerScreen"
 
 /**
- * 基于 MediaPlayer 的视频播放屏幕。
- * 用于 ExoPlayer 无法播放的高分辨率视频（硬件解码器 configure 失败时）。
- * MediaPlayer 使用系统底层解码链路，不依赖 ExoPlayer 的 Surface 管理。
+ * MediaPlayer-based video player for high-res content that ExoPlayer struggles with.
+ * Uses TextureView (not SurfaceView) to avoid compositor window-layer issues with Compose.
+ * TextureView renders within the normal View hierarchy and survives pause/resume without
+ * losing its SurfaceTexture, eliminating the black-screen-on-resume problem.
  */
 @Composable
 fun MediaPlayerScreen(
@@ -64,7 +65,7 @@ fun MediaPlayerScreen(
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
-    // ── 核心状态 ──
+    // -- Core state --
     var isFirstFrameRendered by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     var playerPosition by remember { mutableLongStateOf(0L) }
@@ -74,16 +75,20 @@ fun MediaPlayerScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isBuffering by remember { mutableStateOf(true) }
     var surfaceReady by remember { mutableStateOf(false) }
+    var surfaceTextureRef by remember { mutableStateOf<SurfaceTexture?>(null) }
+    var surfaceRef by remember { mutableStateOf<Surface?>(null) }
 
-    // ── Slider 双状态仲裁 ──
+    // -- Generation counter for stale-callback protection --
+    var playerGeneration by remember { mutableIntStateOf(0) }
+
+    // -- Slider dual-state --
     var sliderPosition by remember { mutableLongStateOf(0L) }
     var isDragging by remember { mutableStateOf(false) }
     fun displayPosition() = if (isDragging) sliderPosition else playerPosition
     val skipSeekThresholdMs = 300L
 
-    // ── MediaPlayer ──
+    // -- MediaPlayer --
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
-    var surfaceHolderRef by remember { mutableStateOf<SurfaceHolder?>(null) }
 
     fun seekFast(targetMs: Long) {
         val mp = mediaPlayer ?: return
@@ -98,16 +103,27 @@ fun MediaPlayerScreen(
 
     fun releasePlayer() {
         mediaPlayer?.apply {
+            Log.i(TAG, "releasePlayer")
             try {
                 if (isPlaying) stop()
             } catch (_: IllegalStateException) {}
+            setSurface(null)
             release()
         }
         mediaPlayer = null
+        surfaceRef?.release()
+        surfaceRef = null
     }
 
-    fun createAndAttachPlayer(holder: SurfaceHolder) {
+    fun clearSurfaceRefs() {
+        surfaceRef = null
+        surfaceTextureRef = null
+    }
+
+    fun createAndAttachPlayer(surfaceTexture: SurfaceTexture) {
         releasePlayer()
+        val gen = ++playerGeneration
+        Log.i(TAG, "createAndAttachPlayer: uri=$videoUri gen=$gen")
         try {
             val mp = MediaPlayer()
             mp.setAudioAttributes(
@@ -117,9 +133,19 @@ fun MediaPlayerScreen(
                     .build()
             )
             mp.setDataSource(context, videoUri)
-            mp.setDisplay(holder)
+            val surface = Surface(surfaceTexture)
+            mp.setSurface(surface)
+            surfaceRef = surface
+            Log.i(TAG, "setDataSource+setSurface done, preparing async gen=$gen")
             mp.setOnPreparedListener { player ->
-                Log.i(TAG, "onPrepared: duration=${player.duration}ms")
+                if (playerGeneration != gen) {
+                    Log.w(TAG, "onPrepared: stale gen=$gen (current=$playerGeneration), ignoring")
+                    player.release()
+                    return@setOnPreparedListener
+                }
+                // Apply scaling mode when player is ready and surface is bound
+                player.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT)
+                Log.i(TAG, "onPrepared: duration=${player.duration}ms gen=$gen")
                 duration = player.duration.toLong().coerceAtLeast(0L)
                 isBuffering = false
                 isFirstFrameRendered = true
@@ -128,11 +154,14 @@ fun MediaPlayerScreen(
                 isPlaying = true
             }
             mp.setOnCompletionListener {
+                if (playerGeneration != gen) return@setOnCompletionListener
+                Log.i(TAG, "onCompletion gen=$gen")
                 isPlaying = false
                 isControlVisible = true
             }
             mp.setOnErrorListener { _, what, extra ->
-                Log.e(TAG, "MediaPlayer error: what=$what extra=$extra")
+                if (playerGeneration != gen) return@setOnErrorListener true
+                Log.e(TAG, "MediaPlayer error: what=$what extra=$extra gen=$gen")
                 hasError = true
                 isPlaying = false
                 isBuffering = false
@@ -144,15 +173,20 @@ fun MediaPlayerScreen(
                 true
             }
             mp.setOnInfoListener { _, what, _ ->
-                if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START) {
-                    isBuffering = true
-                } else if (what == MediaPlayer.MEDIA_INFO_BUFFERING_END) {
-                    isBuffering = false
+                if (playerGeneration != gen) return@setOnInfoListener false
+                when (what) {
+                    MediaPlayer.MEDIA_INFO_BUFFERING_START -> isBuffering = true
+                    MediaPlayer.MEDIA_INFO_BUFFERING_END -> isBuffering = false
                 }
                 false
             }
+            mp.setOnVideoSizeChangedListener { _, width, height ->
+                if (playerGeneration != gen) return@setOnVideoSizeChangedListener
+                Log.i(TAG, "onVideoSizeChanged: ${width}x${height} gen=$gen")
+            }
             mp.prepareAsync()
             mediaPlayer = mp
+            Log.i(TAG, "prepareAsync called, waiting for onPrepared gen=$gen")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create MediaPlayer", e)
             hasError = true
@@ -160,29 +194,32 @@ fun MediaPlayerScreen(
         }
     }
 
-    // ── Surface 生命周期 ──
-    val surfaceCallback = remember {
-        object : SurfaceHolder.Callback {
-            override fun surfaceCreated(holder: SurfaceHolder) {
-                Log.i(TAG, "surfaceCreated")
-                surfaceHolderRef = holder
+    // -- TextureView surface lifecycle --
+    val textureListener = remember {
+        object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
+                Log.i(TAG, "onSurfaceTextureAvailable: ${width}x${height}")
+                surfaceTextureRef = st
                 surfaceReady = true
-                if (mediaPlayer == null) {
-                    createAndAttachPlayer(holder)
-                } else {
-                    mediaPlayer?.setDisplay(holder)
-                }
+                createAndAttachPlayer(st)
             }
-            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
-            override fun surfaceDestroyed(holder: SurfaceHolder) {
-                Log.i(TAG, "surfaceDestroyed")
+            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {
+                Log.i(TAG, "onSurfaceTextureSizeChanged: ${width}x${height}")
+            }
+            override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                Log.i(TAG, "onSurfaceTextureDestroyed")
                 surfaceReady = false
                 releasePlayer()
+                clearSurfaceRefs()
+                return true // let the system release the SurfaceTexture
+            }
+            override fun onSurfaceTextureUpdated(st: SurfaceTexture) {
+                // Frames are arriving - if we see this log but no video, it's a compositing issue
             }
         }
     }
 
-    // ── 生命周期 ──
+    // -- Lifecycle --
     DisposableEffect(lifecycle) {
         var wasPlaying = false
         val observer = LifecycleEventObserver { _, event ->
@@ -193,6 +230,8 @@ fun MediaPlayerScreen(
                     isPlaying = false
                 }
                 Lifecycle.Event.ON_RESUME -> {
+                    // TextureView retains SurfaceTexture through pause/resume,
+                    // so the player is still alive — just restart playback.
                     if (wasPlaying && surfaceReady) {
                         mediaPlayer?.start()
                         isPlaying = true
@@ -205,10 +244,11 @@ fun MediaPlayerScreen(
         onDispose {
             lifecycle.removeObserver(observer)
             releasePlayer()
+            clearSurfaceRefs()
         }
     }
 
-    // ── 进度轮询 ──
+    // -- Progress polling --
     LaunchedEffect(isPlaying) {
         if (isPlaying) {
             while (isActive) {
@@ -220,7 +260,7 @@ fun MediaPlayerScreen(
         }
     }
 
-    // ── 自动隐藏 ──
+    // -- Auto-hide controls --
     LaunchedEffect(isControlVisible, isPlaying) {
         if (isControlVisible && isPlaying && !isDragging && !hasError) {
             delay(3000)
@@ -228,10 +268,10 @@ fun MediaPlayerScreen(
         }
     }
 
-    // ── 沉浸模式 ──
+    // -- Immersive mode --
     val view = LocalView.current
     SideEffect {
-        val window = (view.context as Activity).window
+        val window = (view.context as? Activity)?.window ?: return@SideEffect
         val controller = WindowInsetsControllerCompat(window, view)
         if (isControlVisible) {
             controller.show(WindowInsetsCompat.Type.systemBars())
@@ -242,7 +282,7 @@ fun MediaPlayerScreen(
         }
     }
 
-    // ── 返回手势拦截 ──
+    // -- Back handler --
     BackHandler {
         releasePlayer()
         onBack()
@@ -254,18 +294,23 @@ fun MediaPlayerScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
 
-        // ── 视频渲染层 ──
+        // -- Video rendering layer --
+        // TextureView renders in the normal View hierarchy (no independent compositor window).
+        // setVideoScalingMode(SCALE_TO_FIT) handles aspect ratio / letterbox at the system level.
         AndroidView(
             factory = { ctx ->
-                SurfaceView(ctx).apply {
-                    holder.addCallback(surfaceCallback)
+                TextureView(ctx).apply {
+                    surfaceTextureListener = textureListener
                     keepScreenOn = true
+                    // Force hardware layer so TextureView composites correctly
+                    // within Compose's rendering pipeline
+                    setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
 
-        // ── 缩略图占位 ──
+        // -- Thumbnail placeholder --
         AnimatedVisibility(
             visible = !isFirstFrameRendered && thumbnailPath != null,
             enter = fadeIn(animationSpec = tween(50)),
@@ -285,7 +330,7 @@ fun MediaPlayerScreen(
             }
         }
 
-        // ── 缓冲指示器 ──
+        // -- Buffering indicator --
         if (isBuffering && !hasError) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -295,7 +340,7 @@ fun MediaPlayerScreen(
             }
         }
 
-        // ── 错误覆盖层 ──
+        // -- Error overlay --
         if (hasError) {
             Box(
                 modifier = Modifier
@@ -319,7 +364,8 @@ fun MediaPlayerScreen(
                         isBuffering = true
                         sliderPosition = 0L
                         playerPosition = 0L
-                        surfaceHolderRef?.let { createAndAttachPlayer(it) }
+                        // TextureView's SurfaceTexture is still alive — reuse it
+                        surfaceTextureRef?.let { createAndAttachPlayer(it) }
                     }) {
                         Text("重试")
                     }
@@ -343,7 +389,7 @@ fun MediaPlayerScreen(
             }
         }
 
-        // ── 手势层 ──
+        // -- Gesture layer --
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -360,14 +406,14 @@ fun MediaPlayerScreen(
                 }
         )
 
-        // ── 控制栏 ──
+        // -- Controls --
         AnimatedVisibility(
             visible = isControlVisible && !hasError,
             enter = fadeIn(),
             exit = fadeOut()
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                // 返回按钮
+                // Back button
                 Surface(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -389,7 +435,7 @@ fun MediaPlayerScreen(
                     }
                 }
 
-                // 底部进度条
+                // Bottom progress bar
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
