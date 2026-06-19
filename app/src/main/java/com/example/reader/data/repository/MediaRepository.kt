@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.media.MediaScannerConnection
 import android.provider.MediaStore
 import android.util.Log
 import com.example.reader.data.model.MediaFolder
@@ -59,6 +60,7 @@ private val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "avi", "mov", "wmv", 
 private val ALL_MEDIA_EXTENSIONS = IMAGE_EXTENSIONS + VIDEO_EXTENSIONS
 
 class AndroidMediaRepository(
+    private val context: android.content.Context,
     private val contentResolver: ContentResolver,
     private val cacheDir: File? = null
 ) : MediaRepository {
@@ -128,6 +130,7 @@ class AndroidMediaRepository(
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             selection.append(" AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0")
+            selection.append(" AND ${MediaStore.Files.FileColumns.IS_TRASHED} = 0")
         }
 
         if (!includeHidden) {
@@ -141,7 +144,7 @@ class AndroidMediaRepository(
 
         val sortColumn = when (sortMode) {
             SortMode.NAME -> MediaStore.Files.FileColumns.DISPLAY_NAME
-            SortMode.DATE -> MediaStore.Files.FileColumns.DATE_TAKEN
+            SortMode.DATE -> MediaStore.Files.FileColumns.DATE_MODIFIED
             SortMode.SIZE -> MediaStore.Files.FileColumns.SIZE
         }
         val direction = if (sortOrder == SortOrder.DESC) "DESC" else "ASC"
@@ -309,15 +312,13 @@ class AndroidMediaRepository(
                 coverSize = acc.coverSize,
                 coverThumbnailPath = acc.coverThumbnailPath
             )
-        }.let { list ->
+        }.sortedWith(
             when (sortMode) {
-                SortMode.NAME -> list.sortedBy { it.folderName.lowercase() }
-                SortMode.DATE -> list.sortedByDescending { folderMap[it.id]?.maxDate ?: 0L }
-                SortMode.SIZE -> list.sortedByDescending { it.mediaCount }
-            }
-        }.let { list ->
-            if (sortOrder == SortOrder.ASC) list.reversed() else list
-        }
+                SortMode.NAME -> compareBy<MediaFolder> { it.folderName.lowercase() }
+                SortMode.DATE -> compareByDescending<MediaFolder> { folderMap[it.id]?.maxDate ?: 0L }
+                SortMode.SIZE -> compareByDescending<MediaFolder> { it.mediaCount }
+            }.let { if (sortOrder == SortOrder.ASC) it.reversed() else it }
+        )
 
         cacheDir?.let { FolderCache.saveFolders(it, folders) }
         emit(folders)
@@ -332,7 +333,7 @@ class AndroidMediaRepository(
         sortOrder: SortOrder,
         mediaType: Int?
     ): Flow<List<MediaItem>> = flow {
-        val (mediaStoreItems, folderPath) = queryMediaStoreItems(parentId, sortMode, sortOrder, mediaType)
+        val (mediaStoreItems, folderPath, staleDirs) = queryMediaStoreItems(parentId, sortMode, sortOrder, mediaType)
         val knownFilePaths = mediaStoreItems.mapNotNull { it.folderPath.takeIf { p -> p.isNotEmpty() } }.toSet()
 
         // BitmapFactory 补齐 MediaStore 中缺失的宽高
@@ -356,6 +357,14 @@ class AndroidMediaRepository(
 
         // Phase 1: ???? MediaStore ??
         emit(filledItems)
+
+        // 发现过期条目时触发 MediaScanner 重新索引（让重命名后的文件被正确收录）
+        if (staleDirs.isNotEmpty()) {
+            Log.w("MediaRepo", "发现 ${staleDirs.size} 个过期目录，触发 MediaScanner")
+            for (dir in staleDirs) {
+                MediaScannerConnection.scanFile(context, arrayOf(dir), null, null)
+            }
+        }
         val rootPath = folderPath.ifEmpty {
             allFoldersCache?.find { it.id == parentId }?.folderPath ?: ""
         }
@@ -408,6 +417,7 @@ class AndroidMediaRepository(
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             selection.append(" AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0")
+            selection.append(" AND ${MediaStore.Files.FileColumns.IS_TRASHED} = 0")
         }
 
         val hiddenParents = getHiddenFolderParentIds()
@@ -422,9 +432,9 @@ class AndroidMediaRepository(
 
         val cursor = contentResolver.query(
             unifiedUri, fileProjection, selection.toString(), selectionArgs.toTypedArray(),
-            "${MediaStore.Files.FileColumns.DATE_TAKEN} DESC"
+            "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
         )
-        emit(readMediaItemsFromCursor(cursor))
+        emit(readMediaItemsFromCursor(cursor).items)
     }.flowOn(Dispatchers.IO)
 
     override fun searchFolders(query: String): Flow<List<MediaFolder>> = flow {
@@ -453,12 +463,13 @@ class AndroidMediaRepository(
         sortMode: SortMode,
         sortOrder: SortOrder,
         mediaType: Int? = null
-    ): Pair<List<MediaItem>, String> {
+    ): Triple<List<MediaItem>, String, List<String>> {
         val baseSelection = if (mediaType != null) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 "${MediaStore.Files.FileColumns.PARENT} = ?" +
                     " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?" +
-                    " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0"
+                    " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0" +
+                    " AND ${MediaStore.Files.FileColumns.IS_TRASHED} = 0"
             } else {
                 "${MediaStore.Files.FileColumns.PARENT} = ?" +
                     " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?"
@@ -467,7 +478,8 @@ class AndroidMediaRepository(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 "${MediaStore.Files.FileColumns.PARENT} = ?" +
                     " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)" +
-                    " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0"
+                    " AND ${MediaStore.Files.FileColumns.IS_PENDING} = 0" +
+                    " AND ${MediaStore.Files.FileColumns.IS_TRASHED} = 0"
             } else {
                 "${MediaStore.Files.FileColumns.PARENT} = ?" +
                     " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
@@ -489,7 +501,7 @@ class AndroidMediaRepository(
 
         val sortCol = when (sortMode) {
             SortMode.NAME -> MediaStore.Files.FileColumns.DISPLAY_NAME
-            SortMode.DATE -> MediaStore.Files.FileColumns.DATE_TAKEN
+            SortMode.DATE -> MediaStore.Files.FileColumns.DATE_MODIFIED
             SortMode.SIZE -> MediaStore.Files.FileColumns.SIZE
         }
         val direction = if (sortOrder == SortOrder.DESC) "DESC" else "ASC"
@@ -498,14 +510,18 @@ class AndroidMediaRepository(
             unifiedUri, fileProjection, baseSelection, selectionArgs, "$sortCol $direction"
         )
 
-        val items = readMediaItemsFromCursor(cursor)
-        val folderPath = items.firstOrNull()?.folderPath
+        val result = readMediaItemsFromCursor(cursor)
+        val folderPath = result.items.firstOrNull()?.folderPath
             ?.substringBeforeLast("/") ?: ""
-        return Pair(items, folderPath)
+        return Triple(result.items, folderPath, result.staleDirs)
     }
 
-    private fun readMediaItemsFromCursor(cursor: android.database.Cursor?): List<MediaItem> {
+    /** Cursor 查询结果：有效条目 + 过期文件所在目录列表 */
+    private data class CursorResult(val items: List<MediaItem>, val staleDirs: List<String>)
+
+    private fun readMediaItemsFromCursor(cursor: android.database.Cursor?): CursorResult {
         val items = mutableListOf<MediaItem>()
+        val staleDirs = mutableListOf<String>()
         cursor?.use {
             val idCol = it.getColumnIndex(MediaStore.Files.FileColumns._ID)
             val nameCol = it.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
@@ -532,6 +548,12 @@ class AndroidMediaRepository(
                 val w = if (widthCol >= 0) it.getInt(widthCol) else 0
                 val h = if (heightCol >= 0) it.getInt(heightCol) else 0
 
+                // 文件存在性校验：跳过 MediaStore 中已过期的条目
+                if (data.isNotEmpty() && !File(data).exists()) {
+                    staleDirs.add(data.substringBeforeLast("/"))
+                    continue
+                }
+
                 items.add(
                     MediaItem(
                         uri = ContentUris.withAppendedId(unifiedUri, id),
@@ -549,7 +571,7 @@ class AndroidMediaRepository(
                 )
             }
         }
-        return items
+        return CursorResult(items, staleDirs.distinct())
     }
 
     /** BitmapFactory.inJustDecodeBounds 解码图片尺寸，不加载像素数据 */

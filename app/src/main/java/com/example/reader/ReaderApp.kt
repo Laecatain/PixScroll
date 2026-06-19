@@ -26,7 +26,7 @@ class ReaderApp : Application(), ImageLoaderFactory {
 
     /** Shared repository instance — all ViewModels reuse the same [searchIndex]. */
     val mediaRepository: MediaRepository by lazy {
-        AndroidMediaRepository(contentResolver, cacheDir)
+        AndroidMediaRepository(this, contentResolver, cacheDir)
     }
 
     override fun onCreate() {
