@@ -123,24 +123,24 @@ class FolderListViewModelTest {
     }
 
     @Test
-    fun `NAME DESC sorts folders Z-A`() {
+    fun `NAME DESC sorts folders A-Z`() {
         val repo = FakeMediaRepository()
         repo.folders = sortableFolders
         val vm = FolderListViewModel(repo)
 
-        vm.updateSortMode(SortMode.NAME) // default sortOrder=DESC
-        assertEquals(listOf("Download", "Camera", "Album"), folderNames(vm))
+        vm.updateSortMode(SortMode.NAME) // default sortOrder=DESC, NAME base=ASC → A-Z
+        assertEquals(listOf("Album", "Camera", "Download"), folderNames(vm))
     }
 
     @Test
-    fun `NAME ASC sorts folders A-Z`() {
+    fun `NAME ASC sorts folders Z-A`() {
         val repo = FakeMediaRepository()
         repo.folders = sortableFolders
         val vm = FolderListViewModel(repo)
 
         vm.updateSortMode(SortMode.NAME)
-        vm.toggleSortOrder() // DESC → ASC
-        assertEquals(listOf("Album", "Camera", "Download"), folderNames(vm))
+        vm.toggleSortOrder() // DESC → ASC, reversed → Z-A
+        assertEquals(listOf("Download", "Camera", "Album"), folderNames(vm))
     }
 
     @Test

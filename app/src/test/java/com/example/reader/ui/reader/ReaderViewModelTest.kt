@@ -285,24 +285,24 @@ class ReaderViewModelTest {
         vm.state.value.mediaItems.map { it.name }
 
     @Test
-    fun `NAME DESC sorts items Z-A`() {
+    fun `NAME DESC sorts items A-Z`() {
         val repo = FakeMediaRepository()
         repo.mediaItems = mapOf(1L to sortableItems)
         val vm = ReaderViewModel(repo, parentId = 1L)
 
-        vm.setSortMode(SortMode.NAME) // default sortOrder=DESC
-        assertEquals(listOf("cherry.jpg", "banana.jpg", "apple.jpg"), sortedNames(vm))
+        vm.setSortMode(SortMode.NAME) // default sortOrder=DESC, NAME base=ASC → A-Z
+        assertEquals(listOf("apple.jpg", "banana.jpg", "cherry.jpg"), sortedNames(vm))
     }
 
     @Test
-    fun `NAME ASC sorts items A-Z`() {
+    fun `NAME ASC sorts items Z-A`() {
         val repo = FakeMediaRepository()
         repo.mediaItems = mapOf(1L to sortableItems)
         val vm = ReaderViewModel(repo, parentId = 1L)
 
         vm.setSortMode(SortMode.NAME)
-        vm.toggleSortOrder() // DESC → ASC
-        assertEquals(listOf("apple.jpg", "banana.jpg", "cherry.jpg"), sortedNames(vm))
+        vm.toggleSortOrder() // DESC → ASC, reversed → Z-A
+        assertEquals(listOf("cherry.jpg", "banana.jpg", "apple.jpg"), sortedNames(vm))
     }
 
     @Test

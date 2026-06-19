@@ -34,7 +34,7 @@ class FakeMediaRepository : MediaRepository {
     ): Flow<List<MediaFolder>> {
         foldersError?.let { throw it }
         val sorted = when (sortMode) {
-            SortMode.NAME -> folders.sortedByDescending { it.folderName.lowercase() }
+            SortMode.NAME -> folders.sortedBy { it.folderName.lowercase() }
             SortMode.DATE -> folders.sortedByDescending { it.coverDateModified }
             SortMode.SIZE -> folders.sortedByDescending { it.mediaCount }
         }.let { if (sortOrder == SortOrder.ASC) it.reversed() else it }
@@ -53,7 +53,7 @@ class FakeMediaRepository : MediaRepository {
             items = items.filter { it.mediaType == mediaType }
         }
         val sorted = when (sortMode) {
-            SortMode.NAME -> items.sortedByDescending { it.name.lowercase() }
+            SortMode.NAME -> items.sortedBy { it.name.lowercase() }
             SortMode.DATE -> items.sortedByDescending { it.dateModified }
             SortMode.SIZE -> items.sortedByDescending { it.size }
         }.let { if (sortOrder == SortOrder.ASC) it.reversed() else it }
