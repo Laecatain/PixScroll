@@ -33,7 +33,12 @@ class FakeMediaRepository : MediaRepository {
         includeHidden: Boolean
     ): Flow<List<MediaFolder>> {
         foldersError?.let { throw it }
-        return flowOf(folders)
+        val sorted = when (sortMode) {
+            SortMode.NAME -> folders.sortedBy { it.folderName.lowercase() }
+            SortMode.DATE -> folders.sortedByDescending { it.coverDateModified }
+            SortMode.SIZE -> folders.sortedByDescending { it.mediaCount }
+        }.let { if (sortOrder == SortOrder.ASC) it.reversed() else it }
+        return flowOf(sorted)
     }
 
     override fun getMediaByFolder(
@@ -43,7 +48,16 @@ class FakeMediaRepository : MediaRepository {
         mediaType: Int?
     ): Flow<List<MediaItem>> {
         mediaError?.let { throw it }
-        return flowOf(mediaItems[parentId] ?: emptyList())
+        var items = mediaItems[parentId] ?: emptyList()
+        if (mediaType != null) {
+            items = items.filter { it.mediaType == mediaType }
+        }
+        val sorted = when (sortMode) {
+            SortMode.NAME -> items.sortedBy { it.name.lowercase() }
+            SortMode.DATE -> items.sortedByDescending { it.dateModified }
+            SortMode.SIZE -> items.sortedByDescending { it.size }
+        }.let { if (sortOrder == SortOrder.ASC) it.reversed() else it }
+        return flowOf(sorted)
     }
 
     override fun searchMedia(query: String): Flow<List<MediaItem>> {

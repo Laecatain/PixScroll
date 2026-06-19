@@ -272,4 +272,79 @@ class ReaderViewModelTest {
         vm.toggleSortOrder()
         assertEquals(SortOrder.ASC, vm.state.value.sortOrder)
     }
+
+    // ?? Sort regression: verify actual item ordering ??
+
+    private val sortableItems = listOf(
+        MediaItem(null, "apple.jpg", "image/jpeg", 500, 3000, "/DCIM/apple.jpg"),
+        MediaItem(null, "cherry.jpg", "image/jpeg", 1500, 1000, "/DCIM/cherry.jpg"),
+        MediaItem(null, "banana.jpg", "image/jpeg", 1000, 2000, "/DCIM/banana.jpg"),
+    )
+
+    private fun sortedNames(vm: ReaderViewModel) =
+        vm.state.value.mediaItems.map { it.name }
+
+    @Test
+    fun `NAME ASC sorts items A-Z`() {
+        val repo = FakeMediaRepository()
+        repo.mediaItems = mapOf(1L to sortableItems)
+        val vm = ReaderViewModel(repo, parentId = 1L)
+
+        vm.setSortMode(SortMode.NAME)
+        assertEquals(listOf("apple.jpg", "banana.jpg", "cherry.jpg"), sortedNames(vm))
+    }
+
+    @Test
+    fun `NAME DESC sorts items Z-A`() {
+        val repo = FakeMediaRepository()
+        repo.mediaItems = mapOf(1L to sortableItems)
+        val vm = ReaderViewModel(repo, parentId = 1L)
+
+        vm.setSortMode(SortMode.NAME)
+        vm.toggleSortOrder() // DESC → ASC, toggle again → DESC... actually default is DESC, setSortMode keeps it
+        // default is DESC, so NAME + DESC should be Z-A
+        assertEquals(listOf("cherry.jpg", "banana.jpg", "apple.jpg"), sortedNames(vm))
+    }
+
+    @Test
+    fun `DATE DESC sorts newest first`() {
+        val repo = FakeMediaRepository()
+        repo.mediaItems = mapOf(1L to sortableItems)
+        val vm = ReaderViewModel(repo, parentId = 1L)
+
+        // default is DATE+DESC; dateModified values: apple=3000, cherry=1000, banana=2000
+        assertEquals(listOf("apple.jpg", "banana.jpg", "cherry.jpg"), sortedNames(vm))
+    }
+
+    @Test
+    fun `DATE ASC sorts oldest first`() {
+        val repo = FakeMediaRepository()
+        repo.mediaItems = mapOf(1L to sortableItems)
+        val vm = ReaderViewModel(repo, parentId = 1L)
+
+        vm.toggleSortOrder() // DESC → ASC
+        assertEquals(listOf("cherry.jpg", "banana.jpg", "apple.jpg"), sortedNames(vm))
+    }
+
+    @Test
+    fun `SIZE DESC sorts largest first`() {
+        val repo = FakeMediaRepository()
+        repo.mediaItems = mapOf(1L to sortableItems)
+        val vm = ReaderViewModel(repo, parentId = 1L)
+
+        vm.setSortMode(SortMode.SIZE)
+        // size: apple=500, cherry=1500, banana=1000; DESC → cherry, banana, apple
+        assertEquals(listOf("cherry.jpg", "banana.jpg", "apple.jpg"), sortedNames(vm))
+    }
+
+    @Test
+    fun `SIZE ASC sorts smallest first`() {
+        val repo = FakeMediaRepository()
+        repo.mediaItems = mapOf(1L to sortableItems)
+        val vm = ReaderViewModel(repo, parentId = 1L)
+
+        vm.setSortMode(SortMode.SIZE)
+        vm.toggleSortOrder() // DESC → ASC
+        assertEquals(listOf("apple.jpg", "banana.jpg", "cherry.jpg"), sortedNames(vm))
+    }
 }

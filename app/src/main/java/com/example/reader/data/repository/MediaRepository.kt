@@ -2,6 +2,7 @@ package com.example.reader.data.repository
 
 import android.content.ContentResolver
 import android.content.ContentUris
+import android.content.Context
 import android.database.ContentObserver
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -60,7 +61,7 @@ private val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "avi", "mov", "wmv", 
 private val ALL_MEDIA_EXTENSIONS = IMAGE_EXTENSIONS + VIDEO_EXTENSIONS
 
 class AndroidMediaRepository(
-    private val context: android.content.Context,
+    private val context: Context,
     private val contentResolver: ContentResolver,
     private val cacheDir: File? = null
 ) : MediaRepository {
@@ -168,6 +169,7 @@ class AndroidMediaRepository(
             val parentCol = it.getColumnIndex(MediaStore.Files.FileColumns.PARENT)
             val bucketCol = it.getColumnIndex(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
             val dataCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATA)
+            // maxDate 用 DATE_TAKEN（拍摄时间）而非 DATE_MODIFIED，文件夹按"最近拍摄"排序更有意义
             val dateCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATE_TAKEN)
             val mimeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE)
             val mediaTypeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
@@ -355,7 +357,7 @@ class AndroidMediaRepository(
             MediaDimensionsCache.save(cacheDir, cache ?: recordsToSave)
         }
 
-        // Phase 1: ???? MediaStore ??
+        // Phase 1: MediaStore 已索引的文件
         emit(filledItems)
 
         // 发现过期条目时触发 MediaScanner 重新索引（让重命名后的文件被正确收录）
@@ -371,7 +373,7 @@ class AndroidMediaRepository(
         if (filledItems.isEmpty() && rootPath.isEmpty()) return@flow
         if (rootPath.isEmpty()) return@flow
 
-        // Phase 2: FileTreeWalk ???????
+        // Phase 2: FileTreeWalk 补漏未索引的文件
         val unindexed = findUnindexedFiles(rootPath, knownFilePaths, cacheDir, mediaType)
         if (unindexed.isEmpty()) return@flow
 
