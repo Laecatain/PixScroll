@@ -21,6 +21,8 @@ import com.example.reader.util.SearchIndex
 import com.example.reader.util.SearchableMediaEntry
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -28,6 +30,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 
 enum class SortMode { NAME, DATE, SIZE }
 enum class SortOrder { ASC, DESC }
@@ -336,49 +339,52 @@ class AndroidMediaRepository(
         sortOrder: SortOrder,
         mediaType: Int?
     ): Flow<List<MediaItem>> = flow {
-        val (mediaStoreItems, folderPath, staleDirs) = queryMediaStoreItems(parentId, sortMode, sortOrder, mediaType)
+        val (mediaStoreItems, folderPath) = queryMediaStoreItems(parentId, sortMode, sortOrder, mediaType)
         val knownFilePaths = mediaStoreItems.mapNotNull { it.folderPath.takeIf { p -> p.isNotEmpty() } }.toSet()
 
-        // BitmapFactory 补齐 MediaStore 中缺失的宽高
-        val cache = if (cacheDir != null) MediaDimensionsCache.load(cacheDir) else null
-        val recordsToSave = mutableMapOf<String, DimensionRecord>()
-        val filledItems = mediaStoreItems.map { item ->
-            if (item.width > 0 && item.height > 0) {
-                item
-            } else {
-                val uriStr = item.uri?.toString() ?: return@map item
-                val record = cache?.get(uriStr) ?: decodeBounds(uriStr) ?: return@map item
-                recordsToSave[uriStr] = record
-                item.copy(width = record.width, height = record.height)
+        // Phase 1: 立即发射全部 MediaStore 结果（含可能过期的条目），不做任何同步 IO
+        emit(mediaStoreItems)
+
+        val rootPath = folderPath.ifEmpty {
+            allFoldersCache?.find { it.id == parentId }?.folderPath ?: ""
+        }
+        if (mediaStoreItems.isEmpty() && rootPath.isEmpty()) return@flow
+        if (rootPath.isEmpty()) return@flow
+
+        // Phase 1.5 + Phase 2 并行执行：异步过期检查 & FileTreeWalk 补漏
+        val (staleList, unindexedList) = withContext(Dispatchers.IO) {
+            val staleDeferred = async {
+                mediaStoreItems.filter { item ->
+                    item.folderPath.isNotEmpty() && !File(item.folderPath).exists()
+                }
             }
+            val unindexedDeferred = async {
+                findUnindexedFiles(rootPath, knownFilePaths, cacheDir, mediaType)
+            }
+            listOf(staleDeferred.await(), unindexedDeferred.await())
         }
 
-        if (recordsToSave.isNotEmpty() && cacheDir != null) {
-            if (cache != null) cache.putAll(recordsToSave)
-            MediaDimensionsCache.save(cacheDir, cache ?: recordsToSave)
-        }
+        @Suppress("UNCHECKED_CAST")
+        val staleItems = staleList as List<MediaItem>
+        @Suppress("UNCHECKED_CAST")
+        val unindexedItems = unindexedList as List<MediaItem>
 
-        // Phase 1: MediaStore 已索引的文件
-        emit(filledItems)
-
-        // 发现过期条目时触发 MediaScanner 重新索引（让重命名后的文件被正确收录）
+        // 触发 MediaScanner 重新索引过期文件所在目录
+        val staleDirs = staleItems.map { it.folderPath.substringBeforeLast("/") }.distinct()
         if (staleDirs.isNotEmpty()) {
             Log.w("MediaRepo", "发现 ${staleDirs.size} 个过期目录，触发 MediaScanner")
             for (dir in staleDirs) {
                 MediaScannerConnection.scanFile(context, arrayOf(dir), null, null)
             }
         }
-        val rootPath = folderPath.ifEmpty {
-            allFoldersCache?.find { it.id == parentId }?.folderPath ?: ""
-        }
-        if (filledItems.isEmpty() && rootPath.isEmpty()) return@flow
-        if (rootPath.isEmpty()) return@flow
 
-        // Phase 2: FileTreeWalk 补漏未索引的文件
-        val unindexed = findUnindexedFiles(rootPath, knownFilePaths, cacheDir, mediaType)
-        if (unindexed.isEmpty()) return@flow
+        // 合并：过滤过期 + 追加未索引文件
+        val stalePaths = staleItems.map { it.folderPath }.toSet()
+        val validItems = if (stalePaths.isEmpty()) mediaStoreItems
+            else mediaStoreItems.filter { it.folderPath !in stalePaths }
+        if (staleItems.isEmpty() && unindexedItems.isEmpty()) return@flow
 
-        val merged = (filledItems + unindexed).sortedWith(mediaComparator(sortMode, sortOrder))
+        val merged = (validItems + unindexedItems).sortedWith(mediaComparator(sortMode, sortOrder))
         emit(merged)
     }.flowOn(Dispatchers.IO)
 
@@ -437,7 +443,7 @@ class AndroidMediaRepository(
             unifiedUri, fileProjection, selection.toString(), selectionArgs.toTypedArray(),
             "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
         )
-        emit(readMediaItemsFromCursor(cursor).items)
+        emit(readMediaItemsFromCursor(cursor))
     }.flowOn(Dispatchers.IO)
 
     override fun searchFolders(query: String): Flow<List<MediaFolder>> = flow {
@@ -466,7 +472,7 @@ class AndroidMediaRepository(
         sortMode: SortMode,
         sortOrder: SortOrder,
         mediaType: Int? = null
-    ): Triple<List<MediaItem>, String, List<String>> {
+    ): Pair<List<MediaItem>, String> {
         val baseSelection = if (mediaType != null) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 "${MediaStore.Files.FileColumns.PARENT} = ?" +
@@ -513,18 +519,14 @@ class AndroidMediaRepository(
             unifiedUri, fileProjection, baseSelection, selectionArgs, "$sortCol $direction"
         )
 
-        val result = readMediaItemsFromCursor(cursor)
-        val folderPath = result.items.firstOrNull()?.folderPath
+        val items = readMediaItemsFromCursor(cursor)
+        val folderPath = items.firstOrNull()?.folderPath
             ?.substringBeforeLast("/") ?: ""
-        return Triple(result.items, folderPath, result.staleDirs)
+        return Pair(items, folderPath)
     }
 
-    /** Cursor 查询结果：有效条目 + 过期文件所在目录列表 */
-    private data class CursorResult(val items: List<MediaItem>, val staleDirs: List<String>)
-
-    private fun readMediaItemsFromCursor(cursor: android.database.Cursor?): CursorResult {
+    private fun readMediaItemsFromCursor(cursor: android.database.Cursor?): List<MediaItem> {
         val items = mutableListOf<MediaItem>()
-        val staleDirs = mutableListOf<String>()
         cursor?.use {
             val idCol = it.getColumnIndex(MediaStore.Files.FileColumns._ID)
             val nameCol = it.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
@@ -551,12 +553,7 @@ class AndroidMediaRepository(
                 val w = if (widthCol >= 0) it.getInt(widthCol) else 0
                 val h = if (heightCol >= 0) it.getInt(heightCol) else 0
 
-                // 文件存在性校验：跳过 MediaStore 中已过期的条目
-                if (data.isNotEmpty() && !File(data).exists()) {
-                    staleDirs.add(data.substringBeforeLast("/"))
-                    continue
-                }
-
+                // 不做同步 exists() 检查，由 getMediaByFolder 异步过期检查处理
                 items.add(
                     MediaItem(
                         uri = ContentUris.withAppendedId(unifiedUri, id),
@@ -574,7 +571,7 @@ class AndroidMediaRepository(
                 )
             }
         }
-        return CursorResult(items, staleDirs.distinct())
+        return items
     }
 
     /** BitmapFactory.inJustDecodeBounds 解码图片尺寸，不加载像素数据 */
@@ -659,9 +656,10 @@ class AndroidMediaRepository(
         rootPath: String,
         knownFilePaths: Set<String>,
         cacheDir: File?,
-        mediaType: Int? = null
+        mediaType: Int? = null,
+        preloadedCache: MutableMap<String, DimensionRecord>? = null
     ): List<MediaItem> {
-        val cache = if (cacheDir != null) MediaDimensionsCache.load(cacheDir) else null
+        val cache = preloadedCache ?: if (cacheDir != null) MediaDimensionsCache.load(cacheDir) else null
         val recordsToSave = if (cacheDir != null) mutableMapOf<String, DimensionRecord>() else null
         val items = mutableListOf<MediaItem>()
 
