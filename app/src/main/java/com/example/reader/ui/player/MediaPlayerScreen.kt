@@ -43,6 +43,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.reader.util.formatTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.io.File
@@ -92,7 +93,7 @@ fun MediaPlayerScreen(
         if (kotlin.math.abs(target - currentPosition) < skipSeekThresholdMs) return
         playerPosition = target
         sliderPosition = target
-        mp.seekTo(target.toInt().coerceAtLeast(0))
+        mp.seekTo(target.toInt().coerceIn(0, Int.MAX_VALUE))
     }
 
     fun releasePlayer() {
@@ -109,6 +110,12 @@ fun MediaPlayerScreen(
         releasePlayer()
         try {
             val mp = MediaPlayer()
+            mp.setAudioAttributes(
+                android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE)
+                    .build()
+            )
             mp.setDataSource(context, videoUri)
             mp.setDisplay(holder)
             mp.setOnPreparedListener { player ->
@@ -237,6 +244,7 @@ fun MediaPlayerScreen(
 
     // ── 返回手势拦截 ──
     BackHandler {
+        releasePlayer()
         onBack()
     }
 
@@ -432,9 +440,9 @@ fun MediaPlayerScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Slider(
-                            value = displayPosition().toFloat(),
-                            onValueChange = {
-                                sliderPosition = it.toLong()
+                            value = if (duration > 0) (displayPosition().toDouble() / duration.toDouble()).toFloat() else 0f,
+                            onValueChange = { fraction ->
+                                sliderPosition = (fraction.toDouble() * duration.toDouble()).toLong()
                                 isDragging = true
                                 isControlVisible = true
                             },
@@ -442,7 +450,7 @@ fun MediaPlayerScreen(
                                 seekFast(sliderPosition)
                                 isDragging = false
                             },
-                            valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+                            valueRange = 0f..1f,
                             modifier = Modifier.fillMaxWidth(),
                             colors = SliderDefaults.colors(
                                 thumbColor = Color.White,
@@ -455,15 +463,4 @@ fun MediaPlayerScreen(
             }
         }
     }
-}
-
-private fun formatTime(ms: Long): String {
-    val totalSeconds = ms / 1000
-    val seconds = totalSeconds % 60
-    val minutes = (totalSeconds / 60) % 60
-    val hours = totalSeconds / 3600
-    return if (hours > 0)
-        "%02d:%02d:%02d".format(hours, minutes, seconds)
-    else
-        "%02d:%02d".format(minutes, seconds)
 }

@@ -51,12 +51,21 @@ import coil.request.ImageRequest
 import com.example.reader.util.PlayerPreloader
 import com.example.reader.util.TakeResult
 import com.example.reader.util.VideoPlayerFactory
+import com.example.reader.util.formatTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.io.File
 
 private const val LOW_FPS_THRESHOLD = 30f
 private const val HIGH_RES_THRESHOLD = 1080
+
+/** Decoder-related errors that can be recovered by falling back to MediaPlayer. */
+private fun isDecoderError(error: PlaybackException): Boolean =
+    error.errorCode in setOf(
+        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+        PlaybackException.ERROR_CODE_DECODING_FAILED,
+        PlaybackException.ERROR_CODE_DRM_SYSTEM_ERROR
+    )
 
 @Composable
 fun VideoPlayerScreen(
@@ -77,11 +86,19 @@ fun VideoPlayerScreen(
         return
     }
 
+    // ── 核心状态（在路由判断之前声明，供降级路径使用）──
+    var shouldFallbackToMediaPlayer by remember { mutableStateOf(false) }
+
+    // ── ExoPlayer 解码器失败时降级到 MediaPlayer ──
+    if (shouldFallbackToMediaPlayer) {
+        MediaPlayerScreen(videoUri = videoUri, thumbnailPath = thumbnailPath, onBack = onBack)
+        return
+    }
+
     // ── 以下为 ExoPlayer 路径（≤ 1080p） ──
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val uriString = remember { videoUri.toString() }
 
-    // ── 核心状态 ──
     var isFirstFrameRendered by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     var playerPosition by remember { mutableLongStateOf(0L) }
@@ -154,6 +171,10 @@ fun VideoPlayerScreen(
 
     // ── Player 事件监听 + 资源释放 ──
     DisposableEffect(exoPlayer) {
+        // Local flag — onPlayerError sets true before triggering recomposition.
+        // onDispose checks this to avoid operating on an already-released player.
+        // Both callbacks run on main thread, no visibility issue.
+        var releasedInError = false
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
@@ -177,6 +198,24 @@ fun VideoPlayerScreen(
                 isBuffering = false
             }
             override fun onPlayerError(error: PlaybackException) {
+                if (isDecoderError(error)) {
+                    Log.w("VideoPlayer", "decoder_error: ${error.errorCode}, falling back to MediaPlayer")
+                    // Release ExoPlayer here. Compose will still call onDispose when
+                    // DisposableEffect leaves the tree on recomposition, so we set
+                    // releasedInError=true to skip the duplicate cleanup.
+                    releasedInError = true
+                    if (session.ownsPlayer) {
+                        exoPlayer.stop()
+                        exoPlayer.clearMediaItems()
+                        exoPlayer.release()
+                    } else {
+                        exoPlayer.stop()
+                        PlayerPreloader.notifyReleased(uriString)
+                    }
+                    VideoPlayerFactory.clearActiveRenderer()
+                    shouldFallbackToMediaPlayer = true
+                    return
+                }
                 hasError = true
                 isPlaying = false
                 isBuffering = false
@@ -193,14 +232,17 @@ fun VideoPlayerScreen(
         exoPlayer.addListener(listener)
         onDispose {
             exoPlayer.removeListener(listener)
-            clearPlayerSurface()
-            if (session.ownsPlayer) {
-                exoPlayer.stop()
-                exoPlayer.clearMediaItems()
-                exoPlayer.release()
-            } else {
-                PlayerPreloader.notifyReleased(uriString)
+            if (!releasedInError) {
+                clearPlayerSurface()
+                if (session.ownsPlayer) {
+                    exoPlayer.stop()
+                    exoPlayer.clearMediaItems()
+                    exoPlayer.release()
+                } else {
+                    PlayerPreloader.notifyReleased(uriString)
+                }
             }
+            VideoPlayerFactory.clearActiveRenderer()
         }
     }
 
@@ -605,9 +647,9 @@ fun VideoPlayerScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Slider(
-                            value = displayPosition().toFloat(),
-                            onValueChange = {
-                                sliderPosition = it.toLong()
+                            value = if (duration > 0) (displayPosition().toDouble() / duration.toDouble()).toFloat() else 0f,
+                            onValueChange = { fraction ->
+                                sliderPosition = (fraction.toDouble() * duration.toDouble()).toLong()
                                 isDragging = true
                                 isControlVisible = true
                             },
@@ -615,7 +657,7 @@ fun VideoPlayerScreen(
                                 seekFast(sliderPosition)
                                 isDragging = false
                             },
-                            valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+                            valueRange = 0f..1f,
                             modifier = Modifier.fillMaxWidth(),
                             colors = SliderDefaults.colors(
                                 thumbColor = Color.White,
@@ -659,15 +701,4 @@ private fun probeVideoDimensions(context: Context, uri: Uri): Pair<Int, Int> {
     } finally {
         retriever.release()
     }
-}
-
-private fun formatTime(ms: Long): String {
-    val totalSeconds = ms / 1000
-    val seconds = totalSeconds % 60
-    val minutes = (totalSeconds / 60) % 60
-    val hours = totalSeconds / 3600
-    return if (hours > 0)
-        "%02d:%02d:%02d".format(hours, minutes, seconds)
-    else
-        "%02d:%02d".format(minutes, seconds)
 }

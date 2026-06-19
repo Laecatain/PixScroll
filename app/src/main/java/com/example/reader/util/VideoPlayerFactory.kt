@@ -32,6 +32,11 @@ object VideoPlayerFactory {
         activeRenderer?.setThermalStatus(status)
     }
 
+    /** Release the active renderer reference. Called when ExoPlayer is released outside onDispose. */
+    fun clearActiveRenderer() {
+        activeRenderer = null
+    }
+
     // SD tier (longest edge ≤ 720p)
     private const val SD_MIN_BUFFER_MS = 5_000
     private const val SD_MAX_BUFFER_MS = 20_000
@@ -71,7 +76,7 @@ object VideoPlayerFactory {
         videoHeight: Int = 0,
         isLowRam: Boolean = false
     ): ExoPlayer {
-        Log.e(TAG, ">>> VideoPlayerFactory.create(${videoWidth}x${videoHeight}, lowRam=$isLowRam)")
+        Log.i(TAG, "VideoPlayerFactory.create(${videoWidth}x${videoHeight}, lowRam=$isLowRam)")
         val appContext = context.applicationContext
 
         val (minBuffer, maxBuffer, playbackBuffer, rebufferBuffer) =
@@ -186,7 +191,7 @@ object VideoPlayerFactory {
                 requiresSecureDecoder,
                 requiresTunnelingDecoder
             )
-            Log.e(TAG, "decoder_list[$mimeType]: ${all.joinToString { "${it.name}(hw=${it.hardwareAccelerated})" }}")
+            Log.i(TAG, "decoder_list[$mimeType]: ${all.joinToString { "${it.name}(hw=${it.hardwareAccelerated})" }}")
             return all.sortedByDescending { it.hardwareAccelerated }
         }
     }
