@@ -145,7 +145,7 @@ class AndroidMediaRepository(
 
         val sortColumn = when (sortMode) {
             SortMode.NAME -> MediaStore.Files.FileColumns.DISPLAY_NAME
-            SortMode.DATE -> MediaStore.Files.FileColumns.DATE_MODIFIED
+            SortMode.DATE -> MediaStore.Files.FileColumns.DATE_TAKEN
             SortMode.SIZE -> MediaStore.Files.FileColumns.SIZE
         }
         val direction = if (sortOrder == SortOrder.DESC) "DESC" else "ASC"
@@ -504,7 +504,7 @@ class AndroidMediaRepository(
 
         val sortCol = when (sortMode) {
             SortMode.NAME -> MediaStore.Files.FileColumns.DISPLAY_NAME
-            SortMode.DATE -> MediaStore.Files.FileColumns.DATE_MODIFIED
+            SortMode.DATE -> MediaStore.Files.FileColumns.DATE_TAKEN
             SortMode.SIZE -> MediaStore.Files.FileColumns.SIZE
         }
         val direction = if (sortOrder == SortOrder.DESC) "DESC" else "ASC"
