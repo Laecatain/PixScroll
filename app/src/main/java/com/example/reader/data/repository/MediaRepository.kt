@@ -104,7 +104,6 @@ class AndroidMediaRepository(
         MediaStore.Files.FileColumns.MIME_TYPE,
         MediaStore.Files.FileColumns.SIZE,
         MediaStore.Files.FileColumns.DATE_MODIFIED,
-        MediaStore.Files.FileColumns.DATE_TAKEN,
         MediaStore.Files.FileColumns.PARENT,
         MediaStore.Files.FileColumns.DATA,
         MediaStore.Files.FileColumns.MEDIA_TYPE,
@@ -169,8 +168,6 @@ class AndroidMediaRepository(
             val parentCol = it.getColumnIndex(MediaStore.Files.FileColumns.PARENT)
             val bucketCol = it.getColumnIndex(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
             val dataCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATA)
-            // maxDate 用 DATE_TAKEN（拍摄时间）而非 DATE_MODIFIED，文件夹按"最近拍摄"排序更有意义
-            val dateCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATE_TAKEN)
             val mimeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE)
             val mediaTypeCol = it.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
             val sizeCol = it.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
@@ -216,8 +213,7 @@ class AndroidMediaRepository(
                 acc.mediaCount++
                 if (isImage) acc.hasImage = true
                 if (isVideo) acc.hasVideo = true
-                val dateTaken = if (dateCol >= 0) it.getLong(dateCol) else 0L
-                if (dateTaken > acc.maxDate) acc.maxDate = dateTaken
+                if (dateModified > acc.maxDate) acc.maxDate = dateModified
 
                 if (acc.coverMimeType.startsWith("video/") && isImage) {
                     acc.coverId = fileId
