@@ -312,7 +312,7 @@ class AndroidMediaRepository(
             )
         }.sortedWith(
             when (sortMode) {
-                SortMode.NAME -> compareBy<MediaFolder> { it.folderName.lowercase() }
+                SortMode.NAME -> compareByDescending<MediaFolder> { it.folderName.lowercase() }
                 SortMode.DATE -> compareByDescending<MediaFolder> { folderMap[it.id]?.maxDate ?: 0L }
                 SortMode.SIZE -> compareByDescending<MediaFolder> { it.mediaCount }
             }.let { if (sortOrder == SortOrder.ASC) it.reversed() else it }
@@ -740,7 +740,7 @@ class AndroidMediaRepository(
 
     private fun mediaComparator(sortMode: SortMode, sortOrder: SortOrder): Comparator<MediaItem> {
         val cmp: Comparator<MediaItem> = when (sortMode) {
-            SortMode.NAME -> compareBy { it.name.lowercase() }
+            SortMode.NAME -> compareByDescending { it.name.lowercase() }
             SortMode.DATE -> compareByDescending { it.dateModified }
             SortMode.SIZE -> compareByDescending { it.size }
         }

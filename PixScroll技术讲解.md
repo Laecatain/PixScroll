@@ -253,7 +253,7 @@ private fun queryMediaStoreItems(
 
 - 通过 `ContentResolver.query(MediaStore.Files.getContentUri("external"))` 查询
 - API 29+ 过滤 `IS_PENDING = 0`，排除正在写入的文件
-- 使用统一的 `fileProjection`（13 列）：_ID、DISPLAY_NAME、MIME_TYPE、SIZE、DATE_MODIFIED、DATE_TAKEN、PARENT、DATA、MEDIA_TYPE、ORIENTATION、BUCKET_DISPLAY_NAME、WIDTH、HEIGHT
+- 使用统一的 `fileProjection`（12 列）：_ID、DISPLAY_NAME、MIME_TYPE、SIZE、DATE_MODIFIED、PARENT、DATA、MEDIA_TYPE、ORIENTATION、BUCKET_DISPLAY_NAME、WIDTH、HEIGHT
 - 返回结果**立即发射**给 UI (`emit(filledItems)`)
 
 #### 阶段 2：FileTreeWalk 补偿扫描
