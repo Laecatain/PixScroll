@@ -606,6 +606,7 @@ fun VideoPlayerScreen(
                         var pastThreshold = false
                         swipeBaseline = playerPosition
                         drag(down.id) { change ->
+                            if (isLongPressing) return@drag
                             change.consume()
                             dragAccum += change.position.x - change.previousPosition.x
                             if (!pastThreshold && kotlin.math.abs(dragAccum) > viewConfiguration.touchSlop) {
