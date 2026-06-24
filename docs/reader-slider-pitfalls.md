@@ -1,4 +1,7 @@
-# Slider / Scroll Performance Issues
+# 阅读器进度条性能踩坑记录
+
+> 日期：2026-05-14
+> 关联文件：ContinuousScrollReader.kt, PagerReader.kt
 
 ## 问题概述
 

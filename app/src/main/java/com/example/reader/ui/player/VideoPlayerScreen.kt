@@ -1,6 +1,9 @@
-﻿package com.example.reader.ui.player
+package com.example.reader.ui.player
 
 import android.app.Activity
+import android.graphics.Matrix
+import android.graphics.SurfaceTexture
+import android.view.TextureView
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -45,8 +48,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.reader.util.PlayerPreloader
@@ -136,7 +137,7 @@ fun VideoPlayerScreen(
                 .build(),
             true
         )
-        player.playWhenReady = true
+        // playWhenReady deferred until Surface is available
         VideoPlayerSession(player, result is TakeResult.Cold)
     }
     val exoPlayer = session.player
@@ -154,13 +155,25 @@ fun VideoPlayerScreen(
         }
     }
 
-    // ── 画面清除工具函数 ──
-    var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
+    // ── TextureView + aspect ratio transform ──
+    var textureViewRef by remember { mutableStateOf<TextureView?>(null) }
+    var tvVideoWidth by remember { mutableIntStateOf(0) }
+    var tvVideoHeight by remember { mutableIntStateOf(0) }
+    var tvSurfaceWidth by remember { mutableIntStateOf(0) }
+    var tvSurfaceHeight by remember { mutableIntStateOf(0) }
+
+    fun applyVideoTransform(tv: TextureView?, vw: Int, vh: Int, sw: Int, sh: Int) {
+        if (tv == null || vw <= 0 || vh <= 0 || sw <= 0 || sh <= 0) return
+        val videoAspect = vw.toFloat() / vh.toFloat()
+        val viewAspect = sw.toFloat() / sh.toFloat()
+        val sx: Float; val sy: Float
+        if (videoAspect > viewAspect) { sx = 1f; sy = viewAspect / videoAspect }
+        else { sx = videoAspect / viewAspect; sy = 1f }
+        tv.setTransform(Matrix().apply { setScale(sx, sy, sw / 2f, sh / 2f) })
+    }
+
     fun clearPlayerSurface() {
-        playerViewRef?.apply {
-            visibility = android.view.View.INVISIBLE
-            player = null
-        }
+        textureViewRef?.visibility = android.view.View.INVISIBLE
         exoPlayer.clearVideoSurface()
     }
 
@@ -191,6 +204,11 @@ fun VideoPlayerScreen(
             override fun onRenderedFirstFrame() {
                 isFirstFrameRendered = true
                 isBuffering = false
+            }
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                tvVideoWidth = videoSize.width
+                tvVideoHeight = videoSize.height
+                applyVideoTransform(textureViewRef, videoSize.width, videoSize.height, tvSurfaceWidth, tvSurfaceHeight)
             }
             override fun onPlayerError(error: PlaybackException) {
                 if (isDecoderError(error)) {
@@ -424,17 +442,34 @@ fun VideoPlayerScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
 
-        // ── 视频渲染层 ──
+        // ── 视频渲染层 (TextureView — works inside Compose view hierarchy) ──
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                TextureView(ctx).apply {
+                    setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                     keepScreenOn = true
+                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                        override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+                            tvSurfaceWidth = w; tvSurfaceHeight = h
+                            textureViewRef = this@apply
+                            exoPlayer.setVideoSurface(android.view.Surface(st))
+                            exoPlayer.playWhenReady = true
+                        }
+                        override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
+                            tvSurfaceWidth = w; tvSurfaceHeight = h
+                            if (tvVideoWidth > 0 && tvVideoHeight > 0) {
+                                applyVideoTransform(textureViewRef, tvVideoWidth, tvVideoHeight, w, h)
+                            }
+                        }
+                        override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                            exoPlayer.clearVideoSurface()
+                            textureViewRef = null
+                            return true
+                        }
+                        override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+                    }
                 }
             },
-            update = { playerViewRef = it },
             modifier = Modifier.fillMaxSize()
         )
 

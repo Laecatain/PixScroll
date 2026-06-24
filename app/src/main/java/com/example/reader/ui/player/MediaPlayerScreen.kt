@@ -1,7 +1,8 @@
-﻿package com.example.reader.ui.player
+package com.example.reader.ui.player
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
 import android.net.Uri
@@ -77,6 +78,21 @@ fun MediaPlayerScreen(
     var surfaceReady by remember { mutableStateOf(false) }
     var surfaceTextureRef by remember { mutableStateOf<SurfaceTexture?>(null) }
     var surfaceRef by remember { mutableStateOf<Surface?>(null) }
+    var mpSurfaceWidth by remember { mutableIntStateOf(0) }
+    var mpSurfaceHeight by remember { mutableIntStateOf(0) }
+    var mpVideoWidth by remember { mutableIntStateOf(0) }
+    var mpVideoHeight by remember { mutableIntStateOf(0) }
+    var mpTextureViewRef by remember { mutableStateOf<TextureView?>(null) }
+
+    fun applyMpVideoTransform(tv: TextureView?, vw: Int, vh: Int, sw: Int, sh: Int) {
+        if (tv == null || vw <= 0 || vh <= 0 || sw <= 0 || sh <= 0) return
+        val videoAspect = vw.toFloat() / vh.toFloat()
+        val viewAspect = sw.toFloat() / sh.toFloat()
+        val sx: Float; val sy: Float
+        if (videoAspect > viewAspect) { sx = 1f; sy = viewAspect / videoAspect }
+        else { sx = videoAspect / viewAspect; sy = 1f }
+        tv.setTransform(Matrix().apply { setScale(sx, sy, sw / 2f, sh / 2f) })
+    }
 
     // -- Generation counter for stale-callback protection --
     var playerGeneration by remember { mutableIntStateOf(0) }
@@ -118,6 +134,7 @@ fun MediaPlayerScreen(
     fun clearSurfaceRefs() {
         surfaceRef = null
         surfaceTextureRef = null
+        mpTextureViewRef = null
     }
 
     fun createAndAttachPlayer(surfaceTexture: SurfaceTexture) {
@@ -200,6 +217,7 @@ fun MediaPlayerScreen(
             override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
                 Log.i(TAG, "onSurfaceTextureAvailable: ${width}x${height}")
                 surfaceTextureRef = st
+                mpSurfaceWidth = width; mpSurfaceHeight = height
                 surfaceReady = true
                 createAndAttachPlayer(st)
             }
@@ -305,6 +323,12 @@ fun MediaPlayerScreen(
                     // Force hardware layer so TextureView composites correctly
                     // within Compose's rendering pipeline
                     setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                }
+            },
+            update = { tv ->
+                mpTextureViewRef = tv
+                if (mpVideoWidth > 0 && mpVideoHeight > 0 && tv.width > 0 && tv.height > 0) {
+                    applyMpVideoTransform(tv, mpVideoWidth, mpVideoHeight, tv.width, tv.height)
                 }
             },
             modifier = Modifier.fillMaxSize()

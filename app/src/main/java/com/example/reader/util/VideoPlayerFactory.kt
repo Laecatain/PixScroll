@@ -117,12 +117,7 @@ object VideoPlayerFactory {
             .setBufferDurationsMs(minBuffer, maxBuffer, playbackBuffer, rebufferBuffer)
             .build()
 
-        val trackSelector = DefaultTrackSelector(appContext).apply {
-            setParameters(
-                buildUponParameters()
-                    .setViewportSizeToPhysicalDisplaySize(appContext, true)
-            )
-        }
+        val trackSelector = DefaultTrackSelector(appContext)
 
         Log.i(
             TAG,
@@ -258,34 +253,10 @@ object VideoPlayerFactory {
             frameCounter = 0
         }
 
-        override fun processOutputBuffer(
-            positionUs: Long,
-            elapsedRealtimeUs: Long,
-            codec: MediaCodecAdapter?,
-            buffer: java.nio.ByteBuffer?,
-            bufferIndex: Int,
-            bufferFlags: Int,
-            sampleCount: Int,
-            bufferPresentationTimeUs: Long,
-            isDecodeOnlyBuffer: Boolean,
-            isLastBuffer: Boolean,
-            format: Format
-        ): Boolean {
-            if (skipInterval > 1) {
-                frameCounter++
-                if (frameCounter % skipInterval != 0) {
-                    // Skip this frame: release buffer without rendering
-                    codec?.releaseOutputBuffer(bufferIndex, false)
-                    return true
-                }
-            }
-            return super.processOutputBuffer(
-                positionUs, elapsedRealtimeUs, codec, buffer,
-                bufferIndex, bufferFlags, sampleCount,
-                bufferPresentationTimeUs, isDecodeOnlyBuffer,
-                isLastBuffer, format
-            )
-        }
+        // processOutputBuffer override REMOVED: calling dropOutputBuffer directly
+        // bypasses MediaCodecVideoRenderer's internal position tracking and causes
+        // the video renderer to stall (audio plays, video frozen).
+        // Thermal throttling now only resets playback speed to 1x (handled in VideoPlayerScreen).
     }
 
     /**
