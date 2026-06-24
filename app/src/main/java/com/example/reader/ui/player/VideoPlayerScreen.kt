@@ -466,12 +466,13 @@ fun VideoPlayerScreen(
                             textureViewRef = this@apply
                             exoPlayer.setVideoSurface(android.view.Surface(st))
                             exoPlayer.playWhenReady = true
-                            // If video dimensions already known, apply transform now and show
+                            // Apply transform if video dimensions already known,
+                            // otherwise show anyway — onVideoSizeChanged will fix the ratio.
                             if (tvVideoWidth > 0 && tvVideoHeight > 0) {
                                 applyVideoTransform(this@apply, tvVideoWidth, tvVideoHeight, w, h)
                                 isTransformReady = true
-                                this@apply.visibility = android.view.View.VISIBLE
                             }
+                            this@apply.visibility = android.view.View.VISIBLE
                         }
                         override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
                             tvSurfaceWidth = w; tvSurfaceHeight = h
@@ -573,6 +574,7 @@ fun VideoPlayerScreen(
                         },
                         onLongPress = {
                             isLongPressing = true
+                            isSwipeSeeking = false
                             currentSpeed = 3f
                             exoPlayer.setPlaybackSpeed(3f)
                         }
@@ -602,11 +604,11 @@ fun VideoPlayerScreen(
                     if (duration <= 0L) return@pointerInput
                     awaitEachGesture {
                         val down = awaitFirstDown()
+                        if (isLongPressing) return@awaitEachGesture
                         var dragAccum = 0f
                         var pastThreshold = false
                         swipeBaseline = playerPosition
                         drag(down.id) { change ->
-                            if (isLongPressing) return@drag
                             change.consume()
                             dragAccum += change.position.x - change.previousPosition.x
                             if (!pastThreshold && kotlin.math.abs(dragAccum) > viewConfiguration.touchSlop) {
