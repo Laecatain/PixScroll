@@ -466,12 +466,19 @@ fun VideoPlayerScreen(
                             textureViewRef = this@apply
                             exoPlayer.setVideoSurface(android.view.Surface(st))
                             exoPlayer.playWhenReady = true
+                            // If video dimensions already known, apply transform now and show
+                            if (tvVideoWidth > 0 && tvVideoHeight > 0) {
+                                applyVideoTransform(this@apply, tvVideoWidth, tvVideoHeight, w, h)
+                                isTransformReady = true
+                                this@apply.visibility = android.view.View.VISIBLE
+                            }
                         }
                         override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
                             tvSurfaceWidth = w; tvSurfaceHeight = h
                             if (tvVideoWidth > 0 && tvVideoHeight > 0) {
                                 applyVideoTransform(textureViewRef, tvVideoWidth, tvVideoHeight, w, h)
-                            if (!isTransformReady) isTransformReady = true
+                                isTransformReady = true
+                                textureViewRef?.visibility = android.view.View.VISIBLE
                             }
                         }
                         override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
