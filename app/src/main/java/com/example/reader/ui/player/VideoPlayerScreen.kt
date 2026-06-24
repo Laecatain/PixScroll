@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -559,13 +560,22 @@ fun VideoPlayerScreen(
                     )
                 }
                 .pointerInput(Unit) {
-                    awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false)
-                        waitForUpOrCancellation()
-                        if (isLongPressing) {
-                            isLongPressing = false
-                            currentSpeed = 1f
-                            exoPlayer.setPlaybackSpeed(1f)
+                    // Monitor raw pointer events to detect REAL finger lift.
+                    // waitForUpOrCancellation() gets tripped by gesture-internal
+                    // cancel (detectTapGestures cancels after long-press), so we
+                    // poll the actual pointer state instead.
+                    while (true) {
+                        awaitPointerEventScope {
+                            val event = awaitPointerEvent()
+                            if (isLongPressing) {
+                                val anyReleased = event.changes.any { c -> !c.pressed }
+                                if (anyReleased) {
+                                    isLongPressing = false
+                                    currentSpeed = 1f
+                                    exoPlayer.setPlaybackSpeed(1f)
+                                    event.changes.forEach { c -> c.consume() }
+                                }
+                            }
                         }
                     }
                 }
