@@ -1,9 +1,6 @@
-package com.example.reader.ui.player
+﻿package com.example.reader.ui.player
 
 import android.app.Activity
-import android.graphics.Matrix
-import android.graphics.SurfaceTexture
-import android.view.TextureView
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -28,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -49,6 +45,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.reader.util.PlayerPreloader
@@ -97,7 +95,6 @@ fun VideoPlayerScreen(
     val uriString = remember { videoUri.toString() }
 
     var isFirstFrameRendered by remember { mutableStateOf(false) }
-    var isTransformReady by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     var playerPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
@@ -109,15 +106,9 @@ fun VideoPlayerScreen(
     var isBuffering by remember { mutableStateOf(false) }
 
     // ── Slider 双状态仲裁 ──
-    // -- Swipe to seek --
-    var isSwipeSeeking by remember { mutableStateOf(false) }
-    var swipeBaseline by remember { mutableLongStateOf(0L) }
-    var swipeSeekTarget by remember { mutableLongStateOf(0L) }
-    var swipeSeekDirection by remember { mutableStateOf("") }
-
     var sliderPosition by remember { mutableLongStateOf(0L) }
     var isDragging by remember { mutableStateOf(false) }
-    fun displayPosition() = if (isDragging) sliderPosition else if (isSwipeSeeking) swipeSeekTarget else playerPosition
+    fun displayPosition() = if (isDragging) sliderPosition else playerPosition
 
     val skipSeekThresholdMs = 300L
 
@@ -145,7 +136,7 @@ fun VideoPlayerScreen(
                 .build(),
             true
         )
-        // playWhenReady deferred until Surface is available
+        player.playWhenReady = true
         VideoPlayerSession(player, result is TakeResult.Cold)
     }
     val exoPlayer = session.player
@@ -163,25 +154,13 @@ fun VideoPlayerScreen(
         }
     }
 
-    // ── TextureView + aspect ratio transform ──
-    var textureViewRef by remember { mutableStateOf<TextureView?>(null) }
-    var tvVideoWidth by remember { mutableIntStateOf(0) }
-    var tvVideoHeight by remember { mutableIntStateOf(0) }
-    var tvSurfaceWidth by remember { mutableIntStateOf(0) }
-    var tvSurfaceHeight by remember { mutableIntStateOf(0) }
-
-    fun applyVideoTransform(tv: TextureView?, vw: Int, vh: Int, sw: Int, sh: Int) {
-        if (tv == null || vw <= 0 || vh <= 0 || sw <= 0 || sh <= 0) return
-        val videoAspect = vw.toFloat() / vh.toFloat()
-        val viewAspect = sw.toFloat() / sh.toFloat()
-        val sx: Float; val sy: Float
-        if (videoAspect > viewAspect) { sx = 1f; sy = viewAspect / videoAspect }
-        else { sx = videoAspect / viewAspect; sy = 1f }
-        tv.setTransform(Matrix().apply { setScale(sx, sy, sw / 2f, sh / 2f) })
-    }
-
+    // ── 画面清除工具函数 ──
+    var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
     fun clearPlayerSurface() {
-        textureViewRef?.visibility = android.view.View.INVISIBLE
+        playerViewRef?.apply {
+            visibility = android.view.View.INVISIBLE
+            player = null
+        }
         exoPlayer.clearVideoSurface()
     }
 
@@ -212,13 +191,6 @@ fun VideoPlayerScreen(
             override fun onRenderedFirstFrame() {
                 isFirstFrameRendered = true
                 isBuffering = false
-            }
-            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-                tvVideoWidth = videoSize.width
-                tvVideoHeight = videoSize.height
-                applyVideoTransform(textureViewRef, videoSize.width, videoSize.height, tvSurfaceWidth, tvSurfaceHeight)
-                if (!isTransformReady) isTransformReady = true
-                textureViewRef?.visibility = android.view.View.VISIBLE
             }
             override fun onPlayerError(error: PlaybackException) {
                 if (isDecoderError(error)) {
@@ -430,7 +402,6 @@ fun VideoPlayerScreen(
         hasError = false
         errorMessage = null
         isFirstFrameRendered = false
-        isTransformReady = false
         isBuffering = false
         sliderPosition = 0L
         playerPosition = 0L
@@ -453,44 +424,17 @@ fun VideoPlayerScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
 
-        // ── 视频渲染层 (TextureView — works inside Compose view hierarchy) ──
+        // ── 视频渲染层 ──
         AndroidView(
             factory = { ctx ->
-                TextureView(ctx).apply {
-                    visibility = android.view.View.INVISIBLE
-                    setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                PlayerView(ctx).apply {
+                    player = exoPlayer
+                    useController = false
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     keepScreenOn = true
-                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                        override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-                            tvSurfaceWidth = w; tvSurfaceHeight = h
-                            textureViewRef = this@apply
-                            exoPlayer.setVideoSurface(android.view.Surface(st))
-                            exoPlayer.playWhenReady = true
-                            // Apply transform if video dimensions already known,
-                            // otherwise show anyway — onVideoSizeChanged will fix the ratio.
-                            if (tvVideoWidth > 0 && tvVideoHeight > 0) {
-                                applyVideoTransform(this@apply, tvVideoWidth, tvVideoHeight, w, h)
-                                isTransformReady = true
-                            }
-                            this@apply.visibility = android.view.View.VISIBLE
-                        }
-                        override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
-                            tvSurfaceWidth = w; tvSurfaceHeight = h
-                            if (tvVideoWidth > 0 && tvVideoHeight > 0) {
-                                applyVideoTransform(textureViewRef, tvVideoWidth, tvVideoHeight, w, h)
-                                isTransformReady = true
-                                textureViewRef?.visibility = android.view.View.VISIBLE
-                            }
-                        }
-                        override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-                            exoPlayer.clearVideoSurface()
-                            textureViewRef = null
-                            return true
-                        }
-                        override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
-                    }
                 }
             },
+            update = { playerViewRef = it },
             modifier = Modifier.fillMaxSize()
         )
 
@@ -574,94 +518,25 @@ fun VideoPlayerScreen(
                         },
                         onLongPress = {
                             isLongPressing = true
-                            isSwipeSeeking = false
                             currentSpeed = 3f
                             exoPlayer.setPlaybackSpeed(3f)
                         }
                     )
                 }
                 .pointerInput(Unit) {
-                    // Monitor raw pointer events to detect REAL finger lift.
-                    // waitForUpOrCancellation() gets tripped by gesture-internal
-                    // cancel (detectTapGestures cancels after long-press), so we
-                    // poll the actual pointer state instead.
-                    while (true) {
-                        awaitPointerEventScope {
-                            val event = awaitPointerEvent()
-                            if (isLongPressing) {
-                                val anyReleased = event.changes.any { c -> !c.pressed }
-                                if (anyReleased) {
-                                    isLongPressing = false
-                                    currentSpeed = 1f
-                                    exoPlayer.setPlaybackSpeed(1f)
-                                    event.changes.forEach { c -> c.consume() }
-                                }
-                            }
-                        }
-                    }
-                }
-                .pointerInput(duration) {
-                    if (duration <= 0L) return@pointerInput
                     awaitEachGesture {
-                        val down = awaitFirstDown()
-                        if (isLongPressing) return@awaitEachGesture
-                        var dragAccum = 0f
-                        var pastThreshold = false
-                        swipeBaseline = playerPosition
-                        drag(down.id) { change ->
-                            change.consume()
-                            dragAccum += change.position.x - change.previousPosition.x
-                            if (!pastThreshold && kotlin.math.abs(dragAccum) > viewConfiguration.touchSlop) {
-                                pastThreshold = true
-                            }
-                            if (pastThreshold) {
-                                isSwipeSeeking = true
-                                isControlVisible = true
-                                val pixelsPerMs = size.width.toFloat() / (duration.toFloat() / 4f)
-                                val deltaMs = (dragAccum / pixelsPerMs).toLong()
-                                swipeSeekTarget = (swipeBaseline + deltaMs).coerceIn(0L, duration)
-                                swipeSeekDirection = if (swipeSeekTarget >= playerPosition) "▶▶" else "◀◀"
-                            }
-                        }
-                        if (isSwipeSeeking) {
-                            isSwipeSeeking = false
-                            seekFast(swipeSeekTarget)
+                        awaitFirstDown(requireUnconsumed = false)
+                        waitForUpOrCancellation()
+                        if (isLongPressing) {
+                            isLongPressing = false
+                            currentSpeed = 1f
+                            exoPlayer.setPlaybackSpeed(1f)
                         }
                     }
                 }
         )
 
         // ── 倍速指示器 ──
-
-        // -- Swipe seek indicator --
-        AnimatedVisibility(
-            visible = isSwipeSeeking,
-            enter = fadeIn(animationSpec = tween(100)),
-            exit = fadeOut(animationSpec = tween(150))
-        ) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 24.dp, vertical = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "${formatTime(swipeSeekTarget)} / ${formatTime(duration)}",
-                        color = Color.White,
-                        fontSize = 20.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = swipeSeekDirection,
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 14.sp
-                    )
-                }
-            }
-        }
         if (currentSpeed != 1f) {
             Box(
                 modifier = Modifier

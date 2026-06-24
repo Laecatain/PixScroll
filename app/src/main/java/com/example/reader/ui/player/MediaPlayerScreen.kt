@@ -1,8 +1,7 @@
-package com.example.reader.ui.player
+﻿package com.example.reader.ui.player
 
 import android.app.Activity
 import android.content.Context
-import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
 import android.net.Uri
@@ -68,7 +67,6 @@ fun MediaPlayerScreen(
 
     // -- Core state --
     var isFirstFrameRendered by remember { mutableStateOf(false) }
-    var isTransformReady by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     var playerPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
@@ -79,35 +77,14 @@ fun MediaPlayerScreen(
     var surfaceReady by remember { mutableStateOf(false) }
     var surfaceTextureRef by remember { mutableStateOf<SurfaceTexture?>(null) }
     var surfaceRef by remember { mutableStateOf<Surface?>(null) }
-    var mpSurfaceWidth by remember { mutableIntStateOf(0) }
-    var mpSurfaceHeight by remember { mutableIntStateOf(0) }
-    var mpVideoWidth by remember { mutableIntStateOf(0) }
-    var mpVideoHeight by remember { mutableIntStateOf(0) }
-    var mpTextureViewRef by remember { mutableStateOf<TextureView?>(null) }
-
-    fun applyMpVideoTransform(tv: TextureView?, vw: Int, vh: Int, sw: Int, sh: Int) {
-        if (tv == null || vw <= 0 || vh <= 0 || sw <= 0 || sh <= 0) return
-        val videoAspect = vw.toFloat() / vh.toFloat()
-        val viewAspect = sw.toFloat() / sh.toFloat()
-        val sx: Float; val sy: Float
-        if (videoAspect > viewAspect) { sx = 1f; sy = viewAspect / videoAspect }
-        else { sx = videoAspect / viewAspect; sy = 1f }
-        tv.setTransform(Matrix().apply { setScale(sx, sy, sw / 2f, sh / 2f) })
-    }
 
     // -- Generation counter for stale-callback protection --
     var playerGeneration by remember { mutableIntStateOf(0) }
 
     // -- Slider dual-state --
-    // -- Swipe to seek --
-    var isSwipeSeeking by remember { mutableStateOf(false) }
-    var swipeBaseline by remember { mutableLongStateOf(0L) }
-    var swipeSeekTarget by remember { mutableLongStateOf(0L) }
-    var swipeSeekDirection by remember { mutableStateOf("") }
-
     var sliderPosition by remember { mutableLongStateOf(0L) }
     var isDragging by remember { mutableStateOf(false) }
-    fun displayPosition() = if (isDragging) sliderPosition else if (isSwipeSeeking) swipeSeekTarget else playerPosition
+    fun displayPosition() = if (isDragging) sliderPosition else playerPosition
     val skipSeekThresholdMs = 300L
 
     // -- MediaPlayer --
@@ -141,7 +118,6 @@ fun MediaPlayerScreen(
     fun clearSurfaceRefs() {
         surfaceRef = null
         surfaceTextureRef = null
-        mpTextureViewRef = null
     }
 
     fun createAndAttachPlayer(surfaceTexture: SurfaceTexture) {
@@ -224,7 +200,6 @@ fun MediaPlayerScreen(
             override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
                 Log.i(TAG, "onSurfaceTextureAvailable: ${width}x${height}")
                 surfaceTextureRef = st
-                mpSurfaceWidth = width; mpSurfaceHeight = height
                 surfaceReady = true
                 createAndAttachPlayer(st)
             }
@@ -325,18 +300,11 @@ fun MediaPlayerScreen(
         AndroidView(
             factory = { ctx ->
                 TextureView(ctx).apply {
-                    visibility = android.view.View.INVISIBLE
                     surfaceTextureListener = textureListener
                     keepScreenOn = true
                     // Force hardware layer so TextureView composites correctly
                     // within Compose's rendering pipeline
                     setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-                }
-            },
-            update = { tv ->
-                mpTextureViewRef = tv
-                if (mpVideoWidth > 0 && mpVideoHeight > 0 && tv.width > 0 && tv.height > 0) {
-                    applyMpVideoTransform(tv, mpVideoWidth, mpVideoHeight, tv.width, tv.height)
                 }
             },
             modifier = Modifier.fillMaxSize()
@@ -436,67 +404,9 @@ fun MediaPlayerScreen(
                         }
                     )
                 }
-                .pointerInput(duration) {
-                    if (duration <= 0L) return@pointerInput
-                    awaitEachGesture {
-                        val down = awaitFirstDown()
-                        var dragAccum = 0f
-                        var pastThreshold = false
-                        swipeBaseline = playerPosition
-                        drag(down.id) { change ->
-                            change.consume()
-                            dragAccum += change.position.x - change.previousPosition.x
-                            if (!pastThreshold && kotlin.math.abs(dragAccum) > viewConfiguration.touchSlop) {
-                                pastThreshold = true
-                            }
-                            if (pastThreshold) {
-                                isSwipeSeeking = true
-                                isControlVisible = true
-                                val pixelsPerMs = size.width.toFloat() / (duration.toFloat() / 4f)
-                                val deltaMs = (dragAccum / pixelsPerMs).toLong()
-                                swipeSeekTarget = (swipeBaseline + deltaMs).coerceIn(0L, duration)
-                                swipeSeekDirection = if (swipeSeekTarget >= playerPosition) "▶▶" else "◀◀"
-                            }
-                        }
-                        if (isSwipeSeeking) {
-                            isSwipeSeeking = false
-                            seekFast(swipeSeekTarget)
-                        }
-                    }
-                }
         )
 
         // -- Controls --
-
-        // -- Swipe seek indicator --
-        AnimatedVisibility(
-            visible = isSwipeSeeking,
-            enter = fadeIn(animationSpec = tween(100)),
-            exit = fadeOut(animationSpec = tween(150))
-        ) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 24.dp, vertical = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "${formatTime(swipeSeekTarget)} / ${formatTime(duration)}",
-                        color = Color.White,
-                        fontSize = 20.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = swipeSeekDirection,
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 14.sp
-                    )
-                }
-            }
-        }
         AnimatedVisibility(
             visible = isControlVisible && !hasError,
             enter = fadeIn(),
