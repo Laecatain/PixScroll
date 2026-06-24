@@ -68,6 +68,7 @@ fun MediaPlayerScreen(
 
     // -- Core state --
     var isFirstFrameRendered by remember { mutableStateOf(false) }
+    var isTransformReady by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     var playerPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
@@ -324,6 +325,7 @@ fun MediaPlayerScreen(
         AndroidView(
             factory = { ctx ->
                 TextureView(ctx).apply {
+                    visibility = android.view.View.INVISIBLE
                     surfaceTextureListener = textureListener
                     keepScreenOn = true
                     // Force hardware layer so TextureView composites correctly

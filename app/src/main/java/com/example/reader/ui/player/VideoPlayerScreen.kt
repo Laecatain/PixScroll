@@ -97,6 +97,7 @@ fun VideoPlayerScreen(
     val uriString = remember { videoUri.toString() }
 
     var isFirstFrameRendered by remember { mutableStateOf(false) }
+    var isTransformReady by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     var playerPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
@@ -216,6 +217,8 @@ fun VideoPlayerScreen(
                 tvVideoWidth = videoSize.width
                 tvVideoHeight = videoSize.height
                 applyVideoTransform(textureViewRef, videoSize.width, videoSize.height, tvSurfaceWidth, tvSurfaceHeight)
+                if (!isTransformReady) isTransformReady = true
+                textureViewRef?.visibility = android.view.View.VISIBLE
             }
             override fun onPlayerError(error: PlaybackException) {
                 if (isDecoderError(error)) {
@@ -427,6 +430,7 @@ fun VideoPlayerScreen(
         hasError = false
         errorMessage = null
         isFirstFrameRendered = false
+        isTransformReady = false
         isBuffering = false
         sliderPosition = 0L
         playerPosition = 0L
@@ -453,6 +457,7 @@ fun VideoPlayerScreen(
         AndroidView(
             factory = { ctx ->
                 TextureView(ctx).apply {
+                    visibility = android.view.View.INVISIBLE
                     setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                     keepScreenOn = true
                     surfaceTextureListener = object : TextureView.SurfaceTextureListener {
@@ -466,6 +471,7 @@ fun VideoPlayerScreen(
                             tvSurfaceWidth = w; tvSurfaceHeight = h
                             if (tvVideoWidth > 0 && tvVideoHeight > 0) {
                                 applyVideoTransform(textureViewRef, tvVideoWidth, tvVideoHeight, w, h)
+                            if (!isTransformReady) isTransformReady = true
                             }
                         }
                         override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
