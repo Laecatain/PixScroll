@@ -106,9 +106,15 @@ fun VideoPlayerScreen(
     var isBuffering by remember { mutableStateOf(false) }
 
     // ── Slider 双状态仲裁 ──
+    // -- Swipe to seek --
+    var isSwipeSeeking by remember { mutableStateOf(false) }
+    var swipeBaseline by remember { mutableLongStateOf(0L) }
+    var swipeSeekTarget by remember { mutableLongStateOf(0L) }
+    var swipeSeekDirection by remember { mutableStateOf("") }
+
     var sliderPosition by remember { mutableLongStateOf(0L) }
     var isDragging by remember { mutableStateOf(false) }
-    fun displayPosition() = if (isDragging) sliderPosition else playerPosition
+    fun displayPosition() = if (isDragging) sliderPosition else if (isSwipeSeeking) swipeSeekTarget else playerPosition
 
     val skipSeekThresholdMs = 300L
 
@@ -157,10 +163,7 @@ fun VideoPlayerScreen(
     // ── 画面清除工具函数 ──
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
     fun clearPlayerSurface() {
-        playerViewRef?.apply {
-            visibility = android.view.View.INVISIBLE
-            player = null
-        }
+        playerViewRef?.player = null
         exoPlayer.clearVideoSurface()
     }
 
@@ -428,6 +431,7 @@ fun VideoPlayerScreen(
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
+                    setShutterBackgroundColor(android.graphics.Color.BLACK)
                     player = exoPlayer
                     useController = false
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -518,23 +522,92 @@ fun VideoPlayerScreen(
                         },
                         onLongPress = {
                             isLongPressing = true
+                            isSwipeSeeking = false
                             currentSpeed = 3f
                             exoPlayer.setPlaybackSpeed(3f)
                         }
                     )
                 }
                 .pointerInput(Unit) {
+                    // Monitor raw pointer events to detect REAL finger lift.
+                    // waitForUpOrCancellation() gets tripped by gesture-internal
+                    // cancel (detectTapGestures cancels after long-press), so we
+                    // poll the actual pointer state instead.
+                    while (true) {
+                        awaitPointerEventScope {
+                            val event = awaitPointerEvent()
+                            if (isLongPressing) {
+                                val anyReleased = event.changes.any { c -> !c.pressed }
+                                if (anyReleased) {
+                                    isLongPressing = false
+                                    currentSpeed = 1f
+                                    exoPlayer.setPlaybackSpeed(1f)
+                                    event.changes.forEach { c -> c.consume() }
+                                }
+                            }
+                        }
+                    }
+                }
+                .pointerInput(duration) {
+                    if (duration <= 0L) return@pointerInput
                     awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false)
-                        waitForUpOrCancellation()
-                        if (isLongPressing) {
-                            isLongPressing = false
-                            currentSpeed = 1f
-                            exoPlayer.setPlaybackSpeed(1f)
+                        val down = awaitFirstDown()
+                        if (isLongPressing) return@awaitEachGesture
+                        var dragAccum = 0f
+                        var pastThreshold = false
+                        swipeBaseline = playerPosition
+                        drag(down.id) { change ->
+                            change.consume()
+                            dragAccum += change.position.x - change.previousPosition.x
+                            if (!pastThreshold && kotlin.math.abs(dragAccum) > viewConfiguration.touchSlop) {
+                                pastThreshold = true
+                            }
+                            if (pastThreshold) {
+                                isSwipeSeeking = true
+                                isControlVisible = true
+                                val pixelsPerMs = size.width.toFloat() / (duration.toFloat() / 4f)
+                                val deltaMs = (dragAccum / pixelsPerMs).toLong()
+                                swipeSeekTarget = (swipeBaseline + deltaMs).coerceIn(0L, duration)
+                                swipeSeekDirection = if (swipeSeekTarget >= playerPosition) "▶▶" else "◀◀"
+                            }
+                        }
+                        if (isSwipeSeeking) {
+                            isSwipeSeeking = false
+                            seekFast(swipeSeekTarget)
                         }
                     }
                 }
         )
+
+        // -- Swipe seek indicator --
+        AnimatedVisibility(
+            visible = isSwipeSeeking,
+            enter = fadeIn(animationSpec = tween(100)),
+            exit = fadeOut(animationSpec = tween(150))
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "${formatTime(swipeSeekTarget)} / ${formatTime(duration)}",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = swipeSeekDirection,
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 14.sp
+                    )
+                }
+            }
+        }
 
         // ── 倍速指示器 ──
         if (currentSpeed != 1f) {
