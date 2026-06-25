@@ -117,7 +117,12 @@ object VideoPlayerFactory {
             .setBufferDurationsMs(minBuffer, maxBuffer, playbackBuffer, rebufferBuffer)
             .build()
 
-        val trackSelector = DefaultTrackSelector(appContext)
+        val trackSelector = DefaultTrackSelector(appContext).apply {
+            setParameters(
+                buildUponParameters()
+                    .setViewportSizeToPhysicalDisplaySize(appContext, true)
+            )
+        }
 
         Log.i(
             TAG,
