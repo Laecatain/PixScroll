@@ -18,6 +18,8 @@ import com.example.reader.util.ThumbnailManager
 import com.example.reader.util.saveFolderSortMode
 import com.example.reader.util.saveFolderSortOrder
 import com.example.reader.util.settingsFlow
+import com.example.reader.util.FolderCoverStrategy
+import com.example.reader.util.VideoCoverStrategy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +47,10 @@ class FolderListViewModel(
     var sortMode by mutableStateOf(SortMode.DATE)
         private set
     var sortOrder by mutableStateOf(SortOrder.DESC)
+        private set
+    var folderCoverStrategy by mutableStateOf(FolderCoverStrategy.LATEST)
+        private set
+    var videoCoverStrategy by mutableStateOf(VideoCoverStrategy.EXACT_1S)
         private set
 
     // 首次启动时跳过 Loading 直接显示缓存
@@ -90,6 +96,12 @@ class FolderListViewModel(
                 sortOrder = try {
                     SortOrder.valueOf(initial.folderSortOrder)
                 } catch (_: IllegalArgumentException) { SortOrder.DESC }
+                folderCoverStrategy = try {
+                    FolderCoverStrategy.valueOf(initial.folderCoverStrategy)
+                } catch (_: IllegalArgumentException) { FolderCoverStrategy.LATEST }
+                videoCoverStrategy = try {
+                    VideoCoverStrategy.valueOf(initial.videoCoverStrategy)
+                } catch (_: IllegalArgumentException) { VideoCoverStrategy.EXACT_1S }
                 loadFolders()
             }
             // ② 响应外部排序变更（设置页面写入时自动同步）
@@ -101,9 +113,18 @@ class FolderListViewModel(
                     val newOrder = try {
                         SortOrder.valueOf(settings.folderSortOrder)
                     } catch (_: IllegalArgumentException) { SortOrder.DESC }
-                    if (newMode != sortMode || newOrder != sortOrder) {
+                    val newCoverStrategy = try {
+                        FolderCoverStrategy.valueOf(settings.folderCoverStrategy)
+                    } catch (_: IllegalArgumentException) { FolderCoverStrategy.LATEST }
+                    val newVideoStrategy = try {
+                        VideoCoverStrategy.valueOf(settings.videoCoverStrategy)
+                    } catch (_: IllegalArgumentException) { VideoCoverStrategy.EXACT_1S }
+                    if (newMode != sortMode || newOrder != sortOrder || 
+                        newCoverStrategy != folderCoverStrategy || newVideoStrategy != videoCoverStrategy) {
                         sortMode = newMode
                         sortOrder = newOrder
+                        folderCoverStrategy = newCoverStrategy
+                        videoCoverStrategy = newVideoStrategy
                         loadFolders()
                     }
                 }
@@ -162,7 +183,7 @@ class FolderListViewModel(
         skipNextLoading = false
         loadJob = viewModelScope.launch {
             try {
-                repository.getAllFolders(sortMode = sortMode, sortOrder = sortOrder)
+                repository.getAllFolders(sortMode = sortMode, sortOrder = sortOrder, folderCoverStrategy = folderCoverStrategy)
                     .onStart { Log.d(TAG, "Flow.onStart [thread=${Thread.currentThread().name}]") }
                     .onEach { folders ->
                         Log.d(TAG, "Flow.onEach: ${folders.size} 个文件夹 [thread=${Thread.currentThread().name}]")
@@ -201,7 +222,8 @@ class FolderListViewModel(
                         val thumbnail = thumbnailManager.generateThumbnail(
                             folder.coverPath,
                             folder.coverDateModified,
-                            folder.coverSize
+                            folder.coverSize,
+                            videoCoverStrategy
                         )
                         if (thumbnail != null) {
                             folder.copy(coverThumbnailPath = thumbnail.absolutePath)

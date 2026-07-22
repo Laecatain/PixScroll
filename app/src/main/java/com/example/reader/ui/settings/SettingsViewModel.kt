@@ -15,6 +15,10 @@ import com.example.reader.util.saveImageSortMode
 import com.example.reader.util.saveImageSortOrder
 import com.example.reader.util.saveVideoSortMode
 import com.example.reader.util.saveVideoSortOrder
+import com.example.reader.util.FolderCoverStrategy
+import com.example.reader.util.VideoCoverStrategy
+import com.example.reader.util.saveFolderCoverStrategy
+import com.example.reader.util.saveVideoCoverStrategy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,7 +34,9 @@ data class SettingsState(
     val folderSortMode: SortMode = SortMode.DATE,
     val folderSortOrder: SortOrder = SortOrder.DESC,
     val gridColumns: Int = 3,
-    val showHidden: Boolean = false
+    val showHidden: Boolean = false,
+    val folderCoverStrategy: FolderCoverStrategy = FolderCoverStrategy.LATEST,
+    val videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
 )
 
 class SettingsViewModel(
@@ -56,7 +62,13 @@ class SettingsViewModel(
                 folderSortMode = SortMode.valueOf(prefs[com.example.reader.util.PreferenceKeys.FOLDER_SORT_MODE] ?: "DATE"),
                 folderSortOrder = SortOrder.valueOf(prefs[com.example.reader.util.PreferenceKeys.FOLDER_SORT_ORDER] ?: "DESC"),
                 gridColumns = prefs[com.example.reader.util.PreferenceKeys.GRID_COLUMNS] ?: 3,
-                showHidden = false
+                showHidden = false,
+                folderCoverStrategy = try {
+                    FolderCoverStrategy.valueOf(prefs[com.example.reader.util.PreferenceKeys.FOLDER_COVER_STRATEGY] ?: "LATEST")
+                } catch (_: IllegalArgumentException) { FolderCoverStrategy.LATEST },
+                videoCoverStrategy = try {
+                    VideoCoverStrategy.valueOf(prefs[com.example.reader.util.PreferenceKeys.VIDEO_COVER_STRATEGY] ?: "EXACT_1S")
+                } catch (_: IllegalArgumentException) { VideoCoverStrategy.EXACT_1S }
             )
         }
     }
@@ -103,6 +115,16 @@ class SettingsViewModel(
     fun setGridColumns(columns: Int) {
         _state.value = _state.value.copy(gridColumns = columns)
         viewModelScope.launch { application.saveGridColumns(columns) }
+    }
+
+    fun setFolderCoverStrategy(strategy: FolderCoverStrategy) {
+        _state.value = _state.value.copy(folderCoverStrategy = strategy)
+        viewModelScope.launch { application.saveFolderCoverStrategy(strategy.name) }
+    }
+
+    fun setVideoCoverStrategy(strategy: VideoCoverStrategy) {
+        _state.value = _state.value.copy(videoCoverStrategy = strategy)
+        viewModelScope.launch { application.saveVideoCoverStrategy(strategy.name) }
     }
 
     class Factory(private val application: Application) : ViewModelProvider.Factory {

@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
+import com.example.reader.util.VideoCoverStrategy
 
 /**
  * 视频缩略图管理器：L1 内存缓存 + L2 磁盘缓存。
@@ -145,9 +146,14 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
      * 生成视频缩略图并写入 L2 磁盘 + L1 内存缓存。
      * 所有 IO（包括 exists 检查）均在 thumbDispatcher 上执行。
      */
-    suspend fun generateThumbnail(videoPath: String, dateModified: Long, size: Long): File? {
+    suspend fun generateThumbnail(
+        videoPath: String,
+        dateModified: Long,
+        size: Long,
+        strategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
+    ): File? {
         return withContext(thumbDispatcher) {
-            val key = hashKey("$videoPath$dateModified$size")
+            val key = hashKey("$videoPath$dateModified${size}${strategy.name}")
             // L1 命中直接返回
             if (memoryCache.get(key) != null) {
                 return@withContext File(thumbDir, "$key.jpg")
@@ -155,7 +161,7 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
             if (File(thumbDir, "$key.jpg").exists()) {
                 return@withContext File(thumbDir, "$key.jpg")
             }
-            generateThumbnailSync(videoPath, dateModified, size)
+            generateThumbnailSync(videoPath, dateModified, size, strategy)
         }
     }
 
@@ -185,11 +191,16 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
      * API 27+ 走 getScaledFrameAtTime（native 层缩放，避免分配全尺寸 Bitmap）；
      * API 26  走 getFrameAtTime + 手动缩放。
      */
-    private fun generateThumbnailSync(videoPath: String, dateModified: Long, size: Long): File? {
+    private fun generateThumbnailSync(
+        videoPath: String,
+        dateModified: Long,
+        size: Long,
+        strategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
+    ): File? {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(videoPath)
-            val bitmap = extractFrameScaled(retriever) ?: return null
+            val bitmap = extractFrameScaled(retriever, strategy) ?: return null
             val file = getThumbFile(videoPath, dateModified, size)
             file.outputStream().use { out ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, THUMB_QUALITY, out)
@@ -212,7 +223,28 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
      *
      * API 26 回退到 getFrameAtTime（全分辨率）+ 手动缩放。
      */
-    private fun extractFrameScaled(retriever: MediaMetadataRetriever): Bitmap? {
+    private fun extractFrameScaled(
+        retriever: MediaMetadataRetriever,
+        strategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
+    ): Bitmap? {
+        val durationMs = retriever.extractMetadata(
+            MediaMetadataRetriever.METADATA_KEY_DURATION
+        )?.toLongOrNull() ?: 0L
+
+        val timeUs = when (strategy) {
+            VideoCoverStrategy.EXACT_1S -> 1_000_000L
+            VideoCoverStrategy.MID_FRAME -> {
+                val safeDuration = durationMs.coerceAtLeast(1000)
+                val midMs = (safeDuration * 4 / 10).coerceIn(500, safeDuration - 200)
+                midMs * 1000
+            }
+            VideoCoverStrategy.CLOSEST_KEYFRAME -> {
+                val safeDuration = durationMs.coerceAtLeast(1000)
+                val targetMs = (safeDuration * 3 / 10).coerceIn(500, safeDuration - 200)
+                targetMs * 1000
+            }
+        }
+
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             // 查询原始尺寸以计算等比例目标尺寸
             val origWidth = retriever.extractMetadata(
@@ -222,18 +254,36 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
                 MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT
             )?.toIntOrNull() ?: 0
             val (targetW, targetH) = computeTargetSize(origWidth, origHeight, THUMB_MAX_DIMENSION)
+
             retriever.getScaledFrameAtTime(
-                1_000_000L,                                          // 1s，避开黑屏片头
+                timeUs,                                          // 1s，避开黑屏片头
                 MediaMetadataRetriever.OPTION_CLOSEST,           // 最近关键帧，O(1)
                 targetW, targetH
             )
         } else {
             val full = retriever.getFrameAtTime(
-                1_000_000L,
+                timeUs,
                 MediaMetadataRetriever.OPTION_CLOSEST
             )
             full?.let { scaleToMaxDimension(it, THUMB_MAX_DIMENSION) }
         }
+    }
+
+    private fun isMostlyBlack(bitmap: Bitmap, threshold: Float = 0.05f): Boolean {
+        val w = bitmap.width.coerceAtMost(100)
+        val h = bitmap.height.coerceAtMost(100)
+        val scaled = Bitmap.createScaledBitmap(bitmap, w, h, true)
+        val pixels = IntArray(w * h)
+        scaled.getPixels(pixels, 0, w, 0, 0, w, h)
+        if (scaled !== bitmap) scaled.recycle()
+
+        val darkCount = pixels.count { pixel ->
+            val r = (pixel shr 16) and 0xFF
+            val g = (pixel shr 8) and 0xFF
+            val b = pixel and 0xFF
+            r < 30 && g < 30 && b < 30
+        }
+        return darkCount.toFloat() / pixels.size > (1f - threshold)
     }
 
     /** 计算保持宽高比的缩放目标尺寸，最长边不超过 maxDimension。 */

@@ -23,6 +23,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
 import com.example.reader.ui.theme.ThemeState
+import com.example.reader.util.FolderCoverStrategy
+import com.example.reader.util.VideoCoverStrategy
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -117,6 +119,36 @@ fun SettingsScreen(
                 value = state.gridColumns,
                 options = listOf(3, 4, 5),
                 onSelect = { viewModel.setGridColumns(it) }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+            // Folder cover strategy
+            SettingsSectionHeader("folder cover")
+            CoverStrategyPicker(
+                label = "folder cover strategy",
+                currentStrategy = state.folderCoverStrategy.name,
+                options = listOf(
+                    "LATEST" to "latest media",
+                    "EARLIEST" to "earliest media",
+                    "RANDOM" to "random"
+                ),
+                onSelect = { viewModel.setFolderCoverStrategy(FolderCoverStrategy.valueOf(it)) }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+            // Video cover strategy
+            SettingsSectionHeader("video cover")
+            CoverStrategyPicker(
+                label = "video frame strategy",
+                currentStrategy = state.videoCoverStrategy.name,
+                options = listOf(
+                    "EXACT_1S" to "1st second",
+                    "MID_FRAME" to "middle frame",
+                    "CLOSEST_KEYFRAME" to "30pct keyframe"
+                ),
+                onSelect = { viewModel.setVideoCoverStrategy(VideoCoverStrategy.valueOf(it)) }
             )
 
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
@@ -256,6 +288,40 @@ private fun SettingsRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun CoverStrategyPicker(
+    label: String,
+    currentStrategy: String,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        var expanded by remember { mutableStateOf(false) }
+        Box {
+            TextButton(onClick = { expanded = true }) {
+                Text(options.find { it.first == currentStrategy }?.second ?: currentStrategy)
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { (value, display) ->
+                    DropdownMenuItem(
+                        text = { Text(display) },
+                        onClick = { onSelect(value); expanded = false },
+                        leadingIcon = if (value == currentStrategy) {
+                            { Icon(Icons.Filled.Check, contentDescription = null) }
+                        } else null
+                    )
+                }
+            }
         }
     }
 }

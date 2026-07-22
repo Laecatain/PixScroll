@@ -10,6 +10,21 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
+/** Folder cover strategy */
+enum class FolderCoverStrategy {
+    LATEST,
+    EARLIEST,
+    RANDOM
+}
+
+/** Video cover frame extraction strategy */
+enum class VideoCoverStrategy {
+    EXACT_1S,
+    MID_FRAME,
+    CLOSEST_KEYFRAME
+}
+
+
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "reader_settings")
 
 object PreferenceKeys {
@@ -23,6 +38,8 @@ object PreferenceKeys {
     val FOLDER_SORT_MODE = stringPreferencesKey("folder_sort_mode")   // home folder sort
     val FOLDER_SORT_ORDER = stringPreferencesKey("folder_sort_order") // home folder sort direction
     val GRID_COLUMNS = intPreferencesKey("grid_columns")
+    val FOLDER_COVER_STRATEGY = stringPreferencesKey("folder_cover_strategy")
+    val VIDEO_COVER_STRATEGY = stringPreferencesKey("video_cover_strategy")
 }
 
 data class AppSettingsData(
@@ -35,7 +52,9 @@ data class AppSettingsData(
     val videoSortOrder: String = "DESC",
     val folderSortMode: String = "DATE",   // home folder sort
     val folderSortOrder: String = "DESC",
-    val gridColumns: Int = 3
+    val gridColumns: Int = 3,
+    val folderCoverStrategy: String = "LATEST",
+    val videoCoverStrategy: String = "EXACT_1S"
 )
 
 fun Context.settingsFlow(): Flow<AppSettingsData> = dataStore.data.map { prefs ->
@@ -49,7 +68,9 @@ fun Context.settingsFlow(): Flow<AppSettingsData> = dataStore.data.map { prefs -
         videoSortOrder = prefs[PreferenceKeys.VIDEO_SORT_ORDER] ?: "DESC",
         folderSortMode = prefs[PreferenceKeys.FOLDER_SORT_MODE] ?: "DATE",
         folderSortOrder = prefs[PreferenceKeys.FOLDER_SORT_ORDER] ?: "DESC",
-        gridColumns = prefs[PreferenceKeys.GRID_COLUMNS] ?: 3
+        gridColumns = prefs[PreferenceKeys.GRID_COLUMNS] ?: 3,
+        folderCoverStrategy = prefs[PreferenceKeys.FOLDER_COVER_STRATEGY] ?: "LATEST",
+        videoCoverStrategy = prefs[PreferenceKeys.VIDEO_COVER_STRATEGY] ?: "EXACT_1S"
     )
 }
 
@@ -91,4 +112,11 @@ suspend fun Context.saveFolderSortOrder(order: String) {
 
 suspend fun Context.saveGridColumns(columns: Int) {
     dataStore.edit { prefs -> prefs[PreferenceKeys.GRID_COLUMNS] = columns }
+}
+suspend fun Context.saveFolderCoverStrategy(strategy: String) {
+    dataStore.edit { prefs -> prefs[PreferenceKeys.FOLDER_COVER_STRATEGY] = strategy }
+}
+
+suspend fun Context.saveVideoCoverStrategy(strategy: String) {
+    dataStore.edit { prefs -> prefs[PreferenceKeys.VIDEO_COVER_STRATEGY] = strategy }
 }

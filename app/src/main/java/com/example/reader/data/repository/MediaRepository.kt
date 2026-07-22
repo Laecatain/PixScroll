@@ -19,6 +19,7 @@ import com.example.reader.util.FolderCache
 import com.example.reader.util.MediaDimensionsCache
 import com.example.reader.util.SearchIndex
 import com.example.reader.util.SearchableMediaEntry
+import com.example.reader.util.FolderCoverStrategy
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -39,7 +40,8 @@ interface MediaRepository {
     fun getAllFolders(
         sortMode: SortMode = SortMode.DATE,
         sortOrder: SortOrder = SortOrder.DESC,
-        includeHidden: Boolean = false
+        includeHidden: Boolean = false,
+        folderCoverStrategy: FolderCoverStrategy = FolderCoverStrategy.LATEST
     ): Flow<List<MediaFolder>>
 
     fun getMediaByFolder(
@@ -122,7 +124,8 @@ class AndroidMediaRepository(
     override fun getAllFolders(
         sortMode: SortMode,
         sortOrder: SortOrder,
-        includeHidden: Boolean
+        includeHidden: Boolean,
+        folderCoverStrategy: FolderCoverStrategy
     ): Flow<List<MediaFolder>> = flow {
         val selection = StringBuilder(
             "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
@@ -222,6 +225,32 @@ class AndroidMediaRepository(
                 val dateTaken = if (dateCol >= 0) it.getLong(dateCol) else 0L
                 val effectiveDate = if (dateTaken > 0) dateTaken else dateModified
                 if (effectiveDate > acc.maxDate) acc.maxDate = effectiveDate
+
+                // Track earliest/latest/random candidates for cover strategy
+                if (isImage) {
+                    if (effectiveDate < acc.earliestCoverDate) {
+                        acc.earliestCoverDate = effectiveDate
+                        acc.earliestCoverId = fileId
+                        acc.earliestCoverMime = mime
+                        acc.earliestCoverPath = data
+                        acc.earliestCoverSize = size
+                    }
+                    if (effectiveDate > acc.latestCoverDate) {
+                        acc.latestCoverDate = effectiveDate
+                        acc.latestCoverId = fileId
+                        acc.latestCoverMime = mime
+                        acc.latestCoverPath = data
+                        acc.latestCoverSize = size
+                    }
+                    acc.randomCount++
+                    if (kotlin.random.Random.nextInt(acc.randomCount) == 0) {
+                        acc.randomCoverId = fileId
+                        acc.randomCoverMime = mime
+                        acc.randomCoverPath = data
+                        acc.randomCoverDate = effectiveDate
+                        acc.randomCoverSize = size
+                    }
+                }
 
                 if (acc.coverMimeType.startsWith("video/") && isImage) {
                     acc.coverId = fileId
@@ -844,7 +873,24 @@ class AndroidMediaRepository(
         var mediaCount: Int,
         var maxDate: Long,
         var hasImage: Boolean = false,
-        var hasVideo: Boolean = false
+        var hasVideo: Boolean = false,
+        // Cover strategy candidates
+        var earliestCoverId: Long = -1L,
+        var earliestCoverDate: Long = Long.MAX_VALUE,
+        var earliestCoverMime: String = "",
+        var earliestCoverPath: String = "",
+        var earliestCoverSize: Long = 0L,
+        var latestCoverId: Long = -1L,
+        var latestCoverDate: Long = Long.MIN_VALUE,
+        var latestCoverMime: String = "",
+        var latestCoverPath: String = "",
+        var latestCoverSize: Long = 0L,
+        var randomCoverId: Long = -1L,
+        var randomCoverMime: String = "",
+        var randomCoverPath: String = "",
+        var randomCoverDate: Long = 0L,
+        var randomCoverSize: Long = 0L,
+        var randomCount: Int = 0
     )
     companion object {
         private const val TAG = "MediaRepo"

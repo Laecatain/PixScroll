@@ -1,6 +1,7 @@
 package com.example.reader.data.repository
 
 import com.example.reader.data.model.MediaFolder
+import com.example.reader.util.FolderCoverStrategy
 import com.example.reader.data.model.MediaItem
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -30,7 +31,8 @@ class FakeMediaRepository : MediaRepository {
     override fun getAllFolders(
         sortMode: SortMode,
         sortOrder: SortOrder,
-        includeHidden: Boolean
+        includeHidden: Boolean,
+        folderCoverStrategy: FolderCoverStrategy
     ): Flow<List<MediaFolder>> {
         foldersError?.let { throw it }
         val sorted = when (sortMode) {
