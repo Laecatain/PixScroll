@@ -345,10 +345,9 @@ class AndroidMediaRepository(
         // Phase 1: 立即发射全部 MediaStore 结果（含可能过期的条目），不做任何同步 IO
         emit(mediaStoreItems)
 
-        val rootPath = folderPath.ifEmpty {
-            allFoldersCache?.find { it.id == parentId }?.folderPath ?: ""
-        }
-        if (mediaStoreItems.isEmpty() && rootPath.isEmpty()) return@flow
+        // 优先用 allFoldersCache 的 folderPath（不受 mediaType 过滤影响，且来自上次完整扫描）
+        val rootPath = allFoldersCache?.find { it.id == parentId }?.folderPath?.takeIf { it.isNotEmpty() }
+            ?: folderPath
         if (rootPath.isEmpty()) return@flow
 
         // Phase 1.5 + Phase 2 并行执行：异步过期检查 & FileTreeWalk 补漏
