@@ -16,11 +16,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.example.reader.ui.folderlist.FolderListScreen
+import com.example.reader.ui.folderlist.FolderListViewModel
 import com.example.reader.ui.mediagrid.MediaGridScreen
 import com.example.reader.ui.player.VideoPlayerScreen
 import com.example.reader.ui.reader.ReaderScreen
 import com.example.reader.ui.search.SearchScreen
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.reader.ReaderApp
 import com.example.reader.ui.settings.SettingsScreen
+import com.example.reader.util.VideoCoverStrategy
 
 object Routes {
     const val FOLDER_LIST = "folder_list"
@@ -45,9 +49,14 @@ private fun NavHostController.safePopBackStack() {
 
 @Composable
 fun NavGraph(navController: NavHostController) {
+    val context = LocalContext.current
+    val folderListViewModel: FolderListViewModel = viewModel(
+        factory = FolderListViewModel.Factory(context.applicationContext as ReaderApp)
+    )
     NavHost(navController = navController, startDestination = Routes.FOLDER_LIST) {
         composable(Routes.FOLDER_LIST) {
             FolderListScreen(
+                viewModel = folderListViewModel,
                 onFolderClick = { folder, mediaType ->
                     navController.navigate(Routes.mediaGrid(folder.id, mediaType)) {
                         popUpTo(Routes.FOLDER_LIST)
@@ -135,6 +144,7 @@ fun NavGraph(navController: NavHostController) {
 
         composable(Routes.SEARCH) {
             SearchScreen(
+                videoCoverStrategy = folderListViewModel.videoCoverStrategy,
                 onFolderClick = { folder ->
                     navController.navigate(Routes.mediaGrid(folder.id, 0))
                 },
