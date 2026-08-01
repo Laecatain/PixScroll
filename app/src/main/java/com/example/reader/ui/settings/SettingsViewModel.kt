@@ -19,6 +19,8 @@ import com.example.reader.util.FolderCoverStrategy
 import com.example.reader.util.VideoCoverStrategy
 import com.example.reader.util.saveFolderCoverStrategy
 import com.example.reader.util.saveVideoCoverStrategy
+import com.example.reader.util.saveCoverSortMode
+import com.example.reader.util.saveCoverSortOrder
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,7 +38,9 @@ data class SettingsState(
     val gridColumns: Int = 3,
     val showHidden: Boolean = false,
     val folderCoverStrategy: FolderCoverStrategy = FolderCoverStrategy.LATEST,
-    val videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
+    val videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S,
+    val coverSortMode: SortMode = SortMode.DATE,
+    val coverSortOrder: SortOrder = SortOrder.DESC
 )
 
 class SettingsViewModel(
@@ -68,7 +72,9 @@ class SettingsViewModel(
                 } catch (_: IllegalArgumentException) { FolderCoverStrategy.LATEST },
                 videoCoverStrategy = try {
                     VideoCoverStrategy.valueOf(prefs[com.example.reader.util.PreferenceKeys.VIDEO_COVER_STRATEGY] ?: "EXACT_1S")
-                } catch (_: IllegalArgumentException) { VideoCoverStrategy.EXACT_1S }
+                } catch (_: IllegalArgumentException) { VideoCoverStrategy.EXACT_1S },
+                coverSortMode = SortMode.valueOf(prefs[com.example.reader.util.PreferenceKeys.COVER_SORT_MODE] ?: "DATE"),
+                coverSortOrder = SortOrder.valueOf(prefs[com.example.reader.util.PreferenceKeys.COVER_SORT_ORDER] ?: "DESC")
             )
         }
     }
@@ -125,6 +131,16 @@ class SettingsViewModel(
     fun setVideoCoverStrategy(strategy: VideoCoverStrategy) {
         _state.value = _state.value.copy(videoCoverStrategy = strategy)
         viewModelScope.launch { application.saveVideoCoverStrategy(strategy.name) }
+    }
+
+    fun setCoverSortMode(mode: SortMode) {
+        _state.value = _state.value.copy(coverSortMode = mode)
+        viewModelScope.launch { application.saveCoverSortMode(mode.name) }
+    }
+
+    fun setCoverSortOrder(order: SortOrder) {
+        _state.value = _state.value.copy(coverSortOrder = order)
+        viewModelScope.launch { application.saveCoverSortOrder(order.name) }
     }
 
     class Factory(private val application: Application) : ViewModelProvider.Factory {

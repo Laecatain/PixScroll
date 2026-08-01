@@ -73,8 +73,11 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
      * 从 L1 内存 → L2 磁盘依次查找，返回缓存的 Bitmap（可能为 null）。
      * L2 命中时自动解码并升温 L1，下次访问走内存。
      */
-    fun getBitmap(path: String, lastModified: Long, size: Long): Bitmap? {
-        val key = hashKey("$path$lastModified$size")
+    fun getBitmap(
+        path: String, lastModified: Long, size: Long,
+        strategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
+    ): Bitmap? {
+        val key = cacheKey(path, lastModified, size, strategy)
         // 1. L1 内存命中
         memoryCache.get(key)?.let { return it }
         // 2. L2 磁盘命中 → 解码并升温 L1
@@ -91,14 +94,20 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
     }
 
     /** 返回缓存文件对象（可能不存在），基于 path + lastModified + size 生成键。 */
-    fun getThumbFile(path: String, lastModified: Long, size: Long): File {
-        val key = hashKey("$path$lastModified$size")
+    fun getThumbFile(
+        path: String, lastModified: Long, size: Long,
+        strategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
+    ): File {
+        val key = cacheKey(path, lastModified, size, strategy)
         return File(thumbDir, "$key.jpg")
     }
 
     /** 检查该视频的缩略图是否已缓存（L1 内存或 L2 磁盘）。 */
-    fun exists(path: String, lastModified: Long, size: Long): Boolean {
-        val key = hashKey("$path$lastModified$size")
+    fun exists(
+        path: String, lastModified: Long, size: Long,
+        strategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
+    ): Boolean {
+        val key = cacheKey(path, lastModified, size, strategy)
         return memoryCache.get(key) != null || File(thumbDir, "$key.jpg").exists()
     }
 
@@ -153,7 +162,7 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
         strategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
     ): File? {
         return withContext(thumbDispatcher) {
-            val key = hashKey("$videoPath$dateModified${size}${strategy.name}")
+            val key = cacheKey(videoPath, dateModified, size, strategy)
             // L1 命中直接返回
             if (memoryCache.get(key) != null) {
                 return@withContext File(thumbDir, "$key.jpg")
@@ -201,7 +210,7 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
         return try {
             retriever.setDataSource(videoPath)
             val bitmap = extractFrameScaled(retriever, strategy) ?: return null
-            val file = getThumbFile(videoPath, dateModified, size)
+            val file = getThumbFile(videoPath, dateModified, size, strategy)
             file.outputStream().use { out ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, THUMB_QUALITY, out)
             }
@@ -297,6 +306,11 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
             (origH * ratio).toInt().coerceAtLeast(1)
         )
     }
+
+    private fun cacheKey(
+        path: String, lastModified: Long, size: Long,
+        strategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
+    ): String = hashKey("$path$lastModified$size${strategy.name}")
 
     private fun hashKey(input: String): String {
         val digest = MessageDigest.getInstance("MD5")

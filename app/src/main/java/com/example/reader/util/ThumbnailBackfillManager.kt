@@ -24,6 +24,7 @@ class ThumbnailBackfillManager(
      */
     suspend fun backfill(
         allItems: List<MediaItem>,
+        strategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S,
         onBatchComplete: (Map<Int, String>) -> Unit
     ) {
         val videoItems = allItems.withIndex()
@@ -35,7 +36,7 @@ class ThumbnailBackfillManager(
         videoItems.chunked(5).forEach { chunk ->
             val results = chunk.mapNotNull { (index, item) ->
                 val thumbFile = thumbnailManager.generateThumbnail(
-                    item.folderPath, item.dateModified, item.size
+                    item.folderPath, item.dateModified, item.size, strategy
                 )
                 thumbFile?.let { index to it.absolutePath }
             }

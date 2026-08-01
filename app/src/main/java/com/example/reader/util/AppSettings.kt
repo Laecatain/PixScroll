@@ -14,7 +14,8 @@ import kotlinx.coroutines.flow.map
 enum class FolderCoverStrategy {
     LATEST,
     EARLIEST,
-    RANDOM
+    RANDOM,
+    BY_SORT
 }
 
 /** Video cover frame extraction strategy */
@@ -40,6 +41,8 @@ object PreferenceKeys {
     val GRID_COLUMNS = intPreferencesKey("grid_columns")
     val FOLDER_COVER_STRATEGY = stringPreferencesKey("folder_cover_strategy")
     val VIDEO_COVER_STRATEGY = stringPreferencesKey("video_cover_strategy")
+    val COVER_SORT_MODE = stringPreferencesKey("cover_sort_mode")
+    val COVER_SORT_ORDER = stringPreferencesKey("cover_sort_order")
 }
 
 data class AppSettingsData(
@@ -54,7 +57,9 @@ data class AppSettingsData(
     val folderSortOrder: String = "DESC",
     val gridColumns: Int = 3,
     val folderCoverStrategy: String = "LATEST",
-    val videoCoverStrategy: String = "EXACT_1S"
+    val videoCoverStrategy: String = "EXACT_1S",
+    val coverSortMode: String = "DATE",
+    val coverSortOrder: String = "DESC"
 )
 
 fun Context.settingsFlow(): Flow<AppSettingsData> = dataStore.data.map { prefs ->
@@ -70,7 +75,9 @@ fun Context.settingsFlow(): Flow<AppSettingsData> = dataStore.data.map { prefs -
         folderSortOrder = prefs[PreferenceKeys.FOLDER_SORT_ORDER] ?: "DESC",
         gridColumns = prefs[PreferenceKeys.GRID_COLUMNS] ?: 3,
         folderCoverStrategy = prefs[PreferenceKeys.FOLDER_COVER_STRATEGY] ?: "LATEST",
-        videoCoverStrategy = prefs[PreferenceKeys.VIDEO_COVER_STRATEGY] ?: "EXACT_1S"
+        videoCoverStrategy = prefs[PreferenceKeys.VIDEO_COVER_STRATEGY] ?: "EXACT_1S",
+        coverSortMode = prefs[PreferenceKeys.COVER_SORT_MODE] ?: "DATE",
+        coverSortOrder = prefs[PreferenceKeys.COVER_SORT_ORDER] ?: "DESC"
     )
 }
 
@@ -119,4 +126,12 @@ suspend fun Context.saveFolderCoverStrategy(strategy: String) {
 
 suspend fun Context.saveVideoCoverStrategy(strategy: String) {
     dataStore.edit { prefs -> prefs[PreferenceKeys.VIDEO_COVER_STRATEGY] = strategy }
+}
+
+suspend fun Context.saveCoverSortMode(mode: String) {
+    dataStore.edit { prefs -> prefs[PreferenceKeys.COVER_SORT_MODE] = mode }
+}
+
+suspend fun Context.saveCoverSortOrder(order: String) {
+    dataStore.edit { prefs -> prefs[PreferenceKeys.COVER_SORT_ORDER] = order }
 }

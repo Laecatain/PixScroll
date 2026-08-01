@@ -52,6 +52,10 @@ class FolderListViewModel(
         private set
     var videoCoverStrategy by mutableStateOf(VideoCoverStrategy.EXACT_1S)
         private set
+    var coverSortMode by mutableStateOf(SortMode.DATE)
+        private set
+    var coverSortOrder by mutableStateOf(SortOrder.DESC)
+        private set
 
     // 首次启动时跳过 Loading 直接显示缓存
     private var skipNextLoading = false
@@ -102,6 +106,12 @@ class FolderListViewModel(
                 videoCoverStrategy = try {
                     VideoCoverStrategy.valueOf(initial.videoCoverStrategy)
                 } catch (_: IllegalArgumentException) { VideoCoverStrategy.EXACT_1S }
+                coverSortMode = try {
+                    SortMode.valueOf(initial.coverSortMode)
+                } catch (_: IllegalArgumentException) { SortMode.DATE }
+                coverSortOrder = try {
+                    SortOrder.valueOf(initial.coverSortOrder)
+                } catch (_: IllegalArgumentException) { SortOrder.DESC }
                 loadFolders()
             }
             // ② 响应外部排序变更（设置页面写入时自动同步）
@@ -119,12 +129,21 @@ class FolderListViewModel(
                     val newVideoStrategy = try {
                         VideoCoverStrategy.valueOf(settings.videoCoverStrategy)
                     } catch (_: IllegalArgumentException) { VideoCoverStrategy.EXACT_1S }
+                    val newCoverSortMode = try {
+                        SortMode.valueOf(settings.coverSortMode)
+                    } catch (_: IllegalArgumentException) { SortMode.DATE }
+                    val newCoverSortOrder = try {
+                        SortOrder.valueOf(settings.coverSortOrder)
+                    } catch (_: IllegalArgumentException) { SortOrder.DESC }
                     if (newMode != sortMode || newOrder != sortOrder || 
-                        newCoverStrategy != folderCoverStrategy || newVideoStrategy != videoCoverStrategy) {
+                        newCoverStrategy != folderCoverStrategy || newVideoStrategy != videoCoverStrategy ||
+                        newCoverSortMode != coverSortMode || newCoverSortOrder != coverSortOrder) {
                         sortMode = newMode
                         sortOrder = newOrder
                         folderCoverStrategy = newCoverStrategy
                         videoCoverStrategy = newVideoStrategy
+                        coverSortMode = newCoverSortMode
+                        coverSortOrder = newCoverSortOrder
                         loadFolders()
                     }
                 }
@@ -183,7 +202,7 @@ class FolderListViewModel(
         skipNextLoading = false
         loadJob = viewModelScope.launch {
             try {
-                repository.getAllFolders(sortMode = sortMode, sortOrder = sortOrder, folderCoverStrategy = folderCoverStrategy)
+                repository.getAllFolders(sortMode = sortMode, sortOrder = sortOrder, folderCoverStrategy = folderCoverStrategy, coverSortMode = coverSortMode, coverSortOrder = coverSortOrder)
                     .onStart { Log.d(TAG, "Flow.onStart [thread=${Thread.currentThread().name}]") }
                     .onEach { folders ->
                         Log.d(TAG, "Flow.onEach: ${folders.size} 个文件夹 [thread=${Thread.currentThread().name}]")

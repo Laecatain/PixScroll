@@ -384,6 +384,17 @@ class AndroidMediaRepository(
                         acc.coverThumbnailPath = null
                     }
                 }
+                FolderCoverStrategy.BY_SORT -> {
+                    val candidate = selectCoverBySort(acc, coverSortMode, coverSortOrder)
+                    if (candidate != null) {
+                        acc.coverId = candidate.id
+                        acc.coverMimeType = candidate.mime
+                        acc.coverPath = candidate.path
+                        acc.coverSize = candidate.size
+                        acc.coverDateModified = candidate.dateModified
+                        acc.coverThumbnailPath = null
+                    }
+                }
             }
         }
 
@@ -951,8 +962,89 @@ class AndroidMediaRepository(
         var randomCoverPath: String = "",
         var randomCoverDate: Long = 0L,
         var randomCoverSize: Long = 0L,
-        var randomCount: Int = 0
+        var randomCount: Int = 0,
+        // First/last by file name (for BY_SORT NAME mode)
+        var nameFirstCoverId: Long = -1L,
+        var nameFirstCoverMime: String = "",
+        var nameFirstCoverPath: String = "",
+        var nameFirstCoverSize: Long = 0L,
+        var nameFirstCoverDateModified: Long = 0L,
+        var nameFirstCoverName: String = "",
+        var nameLastCoverId: Long = -1L,
+        var nameLastCoverMime: String = "",
+        var nameLastCoverPath: String = "",
+        var nameLastCoverSize: Long = 0L,
+        var nameLastCoverDateModified: Long = 0L,
+        var nameLastCoverName: String = "",
+        // First/last by file size (for BY_SORT SIZE mode)
+        var sizeFirstCoverId: Long = -1L,
+        var sizeFirstCoverMime: String = "",
+        var sizeFirstCoverPath: String = "",
+        var sizeFirstCoverSize: Long = Long.MAX_VALUE,
+        var sizeFirstCoverDateModified: Long = 0L,
+        var sizeLastCoverId: Long = -1L,
+        var sizeLastCoverMime: String = "",
+        var sizeLastCoverPath: String = "",
+        var sizeLastCoverSize: Long = 0L,
+        var sizeLastCoverDateModified: Long = 0L
     )
+    private data class CoverCandidate(
+        val id: Long, val mime: String, val path: String,
+        val size: Long, val dateModified: Long
+    )
+
+    private fun selectCoverBySort(
+        acc: FolderAccumulator,
+        sortMode: SortMode,
+        sortOrder: SortOrder
+    ): CoverCandidate? {
+        return when (sortMode) {
+            SortMode.DATE -> {
+                if (sortOrder == SortOrder.DESC) {
+                    if (acc.latestCoverId >= 0) CoverCandidate(
+                        acc.latestCoverId, acc.latestCoverMime,
+                        acc.latestCoverPath, acc.latestCoverSize, 0L
+                    ) else null
+                } else {
+                    if (acc.earliestCoverId >= 0) CoverCandidate(
+                        acc.earliestCoverId, acc.earliestCoverMime,
+                        acc.earliestCoverPath, acc.earliestCoverSize, 0L
+                    ) else null
+                }
+            }
+            SortMode.NAME -> {
+                if (sortOrder == SortOrder.ASC) {
+                    if (acc.nameFirstCoverId >= 0) CoverCandidate(
+                        acc.nameFirstCoverId, acc.nameFirstCoverMime,
+                        acc.nameFirstCoverPath, acc.nameFirstCoverSize,
+                        acc.nameFirstCoverDateModified
+                    ) else null
+                } else {
+                    if (acc.nameLastCoverId >= 0) CoverCandidate(
+                        acc.nameLastCoverId, acc.nameLastCoverMime,
+                        acc.nameLastCoverPath, acc.nameLastCoverSize,
+                        acc.nameLastCoverDateModified
+                    ) else null
+                }
+            }
+            SortMode.SIZE -> {
+                if (sortOrder == SortOrder.ASC) {
+                    if (acc.sizeFirstCoverId >= 0) CoverCandidate(
+                        acc.sizeFirstCoverId, acc.sizeFirstCoverMime,
+                        acc.sizeFirstCoverPath, acc.sizeFirstCoverSize,
+                        acc.sizeFirstCoverDateModified
+                    ) else null
+                } else {
+                    if (acc.sizeLastCoverId >= 0) CoverCandidate(
+                        acc.sizeLastCoverId, acc.sizeLastCoverMime,
+                        acc.sizeLastCoverPath, acc.sizeLastCoverSize,
+                        acc.sizeLastCoverDateModified
+                    ) else null
+                }
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "MediaRepo"
         private val EXCLUDED_DIRS = setOf("Android", "cache", "tmp", "temp", "data")

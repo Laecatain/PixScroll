@@ -131,10 +131,24 @@ fun SettingsScreen(
                 options = listOf(
                     "LATEST" to "latest media",
                     "EARLIEST" to "earliest media",
-                    "RANDOM" to "random"
+                    "RANDOM" to "random",
+                    "BY_SORT" to "by sort"
                 ),
                 onSelect = { viewModel.setFolderCoverStrategy(FolderCoverStrategy.valueOf(it)) }
             )
+
+            // Cover sort picker (only visible when BY_SORT is selected)
+            if (state.folderCoverStrategy == FolderCoverStrategy.BY_SORT) {
+                SortModePicker(
+                    currentMode = state.coverSortMode,
+                    currentOrder = state.coverSortOrder,
+                    onModeChange = { viewModel.setCoverSortMode(it) },
+                    onOrderToggle = {
+                        val newOrder = if (state.coverSortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
+                        viewModel.setCoverSortOrder(newOrder)
+                    }
+                )
+            }
 
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 

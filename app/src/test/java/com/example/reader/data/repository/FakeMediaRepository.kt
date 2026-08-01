@@ -32,7 +32,9 @@ class FakeMediaRepository : MediaRepository {
         sortMode: SortMode,
         sortOrder: SortOrder,
         includeHidden: Boolean,
-        folderCoverStrategy: FolderCoverStrategy
+        folderCoverStrategy: FolderCoverStrategy,
+        coverSortMode: SortMode,
+        coverSortOrder: SortOrder
     ): Flow<List<MediaFolder>> {
         foldersError?.let { throw it }
         val sorted = when (sortMode) {
