@@ -20,8 +20,11 @@ import com.example.reader.util.saveFolderSortOrder
 import com.example.reader.util.settingsFlow
 import com.example.reader.util.FolderCoverStrategy
 import com.example.reader.util.VideoCoverStrategy
+import com.example.reader.util.PreferenceKeys
+import com.example.reader.util.dataStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -72,7 +75,23 @@ class FolderListViewModel(
 
     init {
         // Cache-First: 同步读取缓存作为 StateFlow 初始值
-        val cached = application?.cacheDir?.let { FolderCache.loadFolders(it) }
+        // 需要同步拿策略值，否则 header 不匹配会导致缓存未命中
+        val initCoverStrategy = application?.let { ctx ->
+            runBlocking {
+                try {
+                    val prefs = ctx.dataStore.data.first()
+                    Pair(
+                        prefs[PreferenceKeys.FOLDER_COVER_STRATEGY] ?: "LATEST",
+                        prefs[PreferenceKeys.VIDEO_COVER_STRATEGY] ?: "EXACT_1S"
+                    )
+                } catch (_: Exception) { Pair("LATEST", "EXACT_1S") }
+            }
+        } ?: Pair("LATEST", "EXACT_1S")
+        val cached = application?.cacheDir?.let {
+            FolderCache.loadFolders(it,
+                expectedFolderCoverStrategy = initCoverStrategy.first,
+                expectedVideoCoverStrategy = initCoverStrategy.second)
+        }
         if (cached != null && cached.isNotEmpty()) {
             Log.d(TAG, "缓存命中: ${cached.size} 个文件夹")
             skipNextLoading = true
