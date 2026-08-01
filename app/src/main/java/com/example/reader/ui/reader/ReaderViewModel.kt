@@ -156,6 +156,7 @@ class ReaderViewModel(
                         VideoCoverStrategy.valueOf(settings.videoCoverStrategy)
                     } catch (_: IllegalArgumentException) { VideoCoverStrategy.EXACT_1S }
                     if (newVideoStrategy != videoCoverStrategy) {
+                        thumbnailManager?.clearCache()
                         videoCoverStrategy = newVideoStrategy
                         loadMedia()
                     }

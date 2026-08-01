@@ -144,9 +144,12 @@ class FolderListViewModel(
                     val newCoverSortOrder = try {
                         SortOrder.valueOf(settings.coverSortOrder)
                     } catch (_: IllegalArgumentException) { SortOrder.DESC }
-                    if (newMode != sortMode || newOrder != sortOrder || 
+                    if (newMode != sortMode || newOrder != sortOrder ||
                         newCoverStrategy != folderCoverStrategy || newVideoStrategy != videoCoverStrategy ||
                         newCoverSortMode != coverSortMode || newCoverSortOrder != coverSortOrder) {
+                        if (newVideoStrategy != videoCoverStrategy) {
+                            thumbnailManager?.clearCache()
+                        }
                         sortMode = newMode
                         sortOrder = newOrder
                         folderCoverStrategy = newCoverStrategy
