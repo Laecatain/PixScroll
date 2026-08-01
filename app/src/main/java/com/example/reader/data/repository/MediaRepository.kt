@@ -290,7 +290,34 @@ class AndroidMediaRepository(
             acc.mediaCount += unindexed.size
             for (f in unindexed) {
                 if (f.isVideo) acc.hasVideo = true
-                if (!f.isVideo) acc.hasImage = true
+                if (!f.isVideo) {
+                    acc.hasImage = true
+                    // Track cover strategy candidates for unindexed images
+                    val synthId = f.absPath.hashCode().toLong() or Long.MIN_VALUE
+                    val fDate = if (f.dateModified > 0) f.dateModified else 0L
+                    if (fDate < acc.earliestCoverDate) {
+                        acc.earliestCoverDate = fDate
+                        acc.earliestCoverId = synthId
+                        acc.earliestCoverMime = f.mime
+                        acc.earliestCoverPath = f.absPath
+                        acc.earliestCoverSize = f.size
+                    }
+                    if (fDate > acc.latestCoverDate) {
+                        acc.latestCoverDate = fDate
+                        acc.latestCoverId = synthId
+                        acc.latestCoverMime = f.mime
+                        acc.latestCoverPath = f.absPath
+                        acc.latestCoverSize = f.size
+                    }
+                    acc.randomCount++
+                    if (kotlin.random.Random.nextInt(acc.randomCount) == 0) {
+                        acc.randomCoverId = synthId
+                        acc.randomCoverMime = f.mime
+                        acc.randomCoverPath = f.absPath
+                        acc.randomCoverDate = fDate
+                        acc.randomCoverSize = f.size
+                    }
+                }
                 // Update cover: prefer images over videos
                 if (acc.coverMimeType.startsWith("video/") && !f.isVideo) {
                     acc.coverId = f.absPath.hashCode().toLong() or Long.MIN_VALUE // synthetic ID
@@ -324,6 +351,40 @@ class AndroidMediaRepository(
             emit(emptyList())
             allFoldersCache = emptyList()
             return@flow
+        }
+
+        // Apply cover strategy: override acc.coverId with the candidate
+        // matching the user-chosen FolderCoverStrategy.
+        for ((_, acc) in folderMap) {
+            when (folderCoverStrategy) {
+                FolderCoverStrategy.LATEST -> {
+                    if (acc.latestCoverId >= 0) {
+                        acc.coverId = acc.latestCoverId
+                        acc.coverMimeType = acc.latestCoverMime
+                        acc.coverPath = acc.latestCoverPath
+                        acc.coverSize = acc.latestCoverSize
+                        acc.coverThumbnailPath = null
+                    }
+                }
+                FolderCoverStrategy.EARLIEST -> {
+                    if (acc.earliestCoverId >= 0) {
+                        acc.coverId = acc.earliestCoverId
+                        acc.coverMimeType = acc.earliestCoverMime
+                        acc.coverPath = acc.earliestCoverPath
+                        acc.coverSize = acc.earliestCoverSize
+                        acc.coverThumbnailPath = null
+                    }
+                }
+                FolderCoverStrategy.RANDOM -> {
+                    if (acc.randomCoverId >= 0) {
+                        acc.coverId = acc.randomCoverId
+                        acc.coverMimeType = acc.randomCoverMime
+                        acc.coverPath = acc.randomCoverPath
+                        acc.coverSize = acc.randomCoverSize
+                        acc.coverThumbnailPath = null
+                    }
+                }
+            }
         }
 
         val folders = folderMap.values.map { acc ->
