@@ -71,7 +71,8 @@ fun ReaderScreen(
             onBack = onBack,
             onSwitchMode = { viewModel.switchMode(ReaderMode.Pager) },
             onVideoClick = onVideoClick,
-            onIndexChange = onIndexChange
+            onIndexChange = onIndexChange,
+            videoCoverStrategy = viewModel.videoCoverStrategy
         )
         ReaderMode.Pager -> PagerReader(
             mediaItems = state.mediaItems,
@@ -79,7 +80,8 @@ fun ReaderScreen(
             onBack = onBack,
             onSwitchMode = { viewModel.switchMode(ReaderMode.ContinuousScroll) },
             onVideoClick = onVideoClick,
-            onIndexChange = onIndexChange
+            onIndexChange = onIndexChange,
+            videoCoverStrategy = viewModel.videoCoverStrategy
         )
     }
 }

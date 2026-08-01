@@ -1,4 +1,4 @@
-﻿package com.example.reader.ui.reader
+package com.example.reader.ui.reader
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -16,9 +16,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.*
-import kotlin.math.roundToInt
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,18 +25,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.request.Parameters
 import coil.size.Size
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import com.example.reader.data.model.MediaItem
 import com.example.reader.ui.theme.ThemeState
+import com.example.reader.util.VideoCoverStrategy
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -49,7 +51,8 @@ fun PagerReader(
     onBack: () -> Unit,
     onSwitchMode: () -> Unit,
     onVideoClick: (MediaItem) -> Unit,
-    onIndexChange: (Int) -> Unit = {}
+    onIndexChange: (Int) -> Unit = {},
+    videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
 ) {
     var showToolbar by remember { mutableStateOf(true) }
     var scale by remember { mutableFloatStateOf(1f) }
@@ -154,6 +157,7 @@ fun PagerReader(
                         ImageRequest.Builder(context)
                             .data(item.uri)
                             .size(Size(screenWidthPx.toInt(), screenHeightPx.toInt()))
+                            .parameters(Parameters.Builder().set("video_cover_strategy", videoCoverStrategy.name).build())
                             .crossfade(150)
                             .memoryCachePolicy(CachePolicy.ENABLED)
                             .diskCachePolicy(CachePolicy.ENABLED)
@@ -281,12 +285,13 @@ private fun androidx.compose.ui.input.pointer.PointerEvent.panChange(): Offset {
 }
 
 @Composable
-private fun PagerVideoItem(item: MediaItem, onClick: () -> Unit, screenWidthPx: Float, screenHeightPx: Float) {
+private fun PagerVideoItem(item: MediaItem, onClick: () -> Unit, screenWidthPx: Float, screenHeightPx: Float, videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S) {
     val context = LocalContext.current
     val model = remember(item.uri, screenWidthPx, screenHeightPx) {
         ImageRequest.Builder(context)
             .data(item.uri)
             .size(Size(screenWidthPx.toInt(), screenHeightPx.toInt()))
+            .parameters(Parameters.Builder().set("video_cover_strategy", videoCoverStrategy.name).build())
             .crossfade(150)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)

@@ -20,6 +20,7 @@ import com.example.reader.util.MediaDimensionsCache
 import com.example.reader.util.SearchIndex
 import com.example.reader.util.SearchableMediaEntry
 import com.example.reader.util.FolderCoverStrategy
+import com.example.reader.util.VideoCoverStrategy
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -42,6 +43,7 @@ interface MediaRepository {
         sortOrder: SortOrder = SortOrder.DESC,
         includeHidden: Boolean = false,
         folderCoverStrategy: FolderCoverStrategy = FolderCoverStrategy.LATEST,
+        videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S,
         coverSortMode: SortMode = SortMode.DATE,
         coverSortOrder: SortOrder = SortOrder.DESC
     ): Flow<List<MediaFolder>>
@@ -128,6 +130,7 @@ class AndroidMediaRepository(
         sortOrder: SortOrder,
         includeHidden: Boolean,
         folderCoverStrategy: FolderCoverStrategy,
+        videoCoverStrategy: VideoCoverStrategy,
         coverSortMode: SortMode,
         coverSortOrder: SortOrder
     ): Flow<List<MediaFolder>> = flow {
@@ -464,7 +467,7 @@ class AndroidMediaRepository(
             }.let { if (sortOrder == SortOrder.ASC) it.reversed() else it }
         )
 
-        cacheDir?.let { FolderCache.saveFolders(it, folders, folderCoverStrategy = folderCoverStrategy.name) }
+        cacheDir?.let { FolderCache.saveFolders(it, folders, folderCoverStrategy = folderCoverStrategy.name, videoCoverStrategy = videoCoverStrategy.name) }
         emit(folders)
         allFoldersCache = folders
     }.flowOn(Dispatchers.IO)

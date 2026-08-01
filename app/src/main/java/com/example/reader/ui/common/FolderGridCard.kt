@@ -20,12 +20,14 @@ import androidx.compose.ui.unit.sp
 import com.example.reader.data.model.MediaFolder
 import com.example.reader.data.model.MediaItem
 import com.example.reader.util.ThumbnailManager
+import com.example.reader.util.VideoCoverStrategy
 
 @Composable
 fun FolderGridCard(
     folder: MediaFolder,
     onClick: () -> Unit,
-    thumbnailManager: ThumbnailManager? = null
+    thumbnailManager: ThumbnailManager? = null,
+    videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
 ) {
     Surface(
         modifier = Modifier
@@ -43,7 +45,8 @@ fun FolderGridCard(
                         contentDescription = folder.folderName,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
-                        thumbnailManager = thumbnailManager
+                        thumbnailManager = thumbnailManager,
+                        videoCoverStrategy = videoCoverStrategy
                     )
                 } else {
                     AsyncGridImage(

@@ -4,6 +4,9 @@ import android.app.Application
 import android.util.Log
 // MediaStore constants: IMAGE=1, VIDEO=3
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -14,6 +17,7 @@ import com.example.reader.data.repository.SortMode
 import com.example.reader.data.repository.SortOrder
 import com.example.reader.util.ThumbnailBackfillManager
 import com.example.reader.util.ThumbnailManager
+import com.example.reader.util.VideoCoverStrategy
 import com.example.reader.util.saveImageSortMode
 import com.example.reader.util.saveImageSortOrder
 import com.example.reader.util.saveSortMode
@@ -101,6 +105,9 @@ class ReaderViewModel(
     private val backfillManager: ThumbnailBackfillManager? =
         thumbnailManager?.let { ThumbnailBackfillManager(it) }
 
+    var videoCoverStrategy by mutableStateOf(VideoCoverStrategy.EXACT_1S)
+        private set
+
     init {
         if (application != null) {
             // ? read initial sort prefs for this mediaType, then load
@@ -121,6 +128,9 @@ class ReaderViewModel(
                     sortOrder = try { SortOrder.valueOf(orderName) } catch (_: IllegalArgumentException) { SortOrder.DESC }
                 )
                 loadMedia()
+                videoCoverStrategy = try {
+                    VideoCoverStrategy.valueOf(initial.videoCoverStrategy)
+                } catch (_: IllegalArgumentException) { VideoCoverStrategy.EXACT_1S }
             }
             // ? respond to external sort changes (DataStore written by Settings screen)
             viewModelScope.launch {
@@ -140,6 +150,13 @@ class ReaderViewModel(
                     val s = _state.value
                     if (newMode != s.sortMode || newOrder != s.sortOrder) {
                         _state.value = s.copy(sortMode = newMode, sortOrder = newOrder)
+                        loadMedia()
+                    }
+                    val newVideoStrategy = try {
+                        VideoCoverStrategy.valueOf(settings.videoCoverStrategy)
+                    } catch (_: IllegalArgumentException) { VideoCoverStrategy.EXACT_1S }
+                    if (newVideoStrategy != videoCoverStrategy) {
+                        videoCoverStrategy = newVideoStrategy
                         loadMedia()
                     }
                 }
@@ -256,7 +273,7 @@ class ReaderViewModel(
     private suspend fun updateVideoThumbnails(generation: Int, mgr: ThumbnailManager) {
         val backfill = backfillManager ?: return
         val items = _state.value.mediaItems
-        backfill.backfill(items) { results ->
+        backfill.backfill(items, videoCoverStrategy) { results ->
             if (generation != currentGeneration || isFrozen) return@backfill
             val updates = results.mapNotNull { (index, path) ->
                 val item = items.getOrNull(index) ?: return@mapNotNull null

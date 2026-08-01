@@ -40,6 +40,7 @@ import com.example.reader.ui.common.FastScroller
 import com.example.reader.ui.reader.ReaderViewModel
 import com.example.reader.util.PlayerPreloader
 import com.example.reader.util.PreferenceKeys
+import com.example.reader.util.VideoCoverStrategy
 import com.example.reader.util.ThumbnailManager
 import com.example.reader.util.dataStore
 import kotlinx.coroutines.flow.first
@@ -183,6 +184,7 @@ fun MediaGridScreen(
                             MediaGridCell(
                                 item = item,
                                 thumbnailManager = thumbnailManager,
+                                videoCoverStrategy = viewModel.videoCoverStrategy,
                                 onClick = {
                                     if (item.isVideo) {
                                         if (isNavigating) return@MediaGridCell
@@ -212,7 +214,12 @@ fun MediaGridScreen(
 }
 
 @Composable
-private fun MediaGridCell(item: MediaItem, thumbnailManager: ThumbnailManager?, onClick: () -> Unit) {
+private fun MediaGridCell(
+    item: MediaItem,
+    thumbnailManager: ThumbnailManager?,
+    videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S,
+    onClick: () -> Unit
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -226,7 +233,8 @@ private fun MediaGridCell(item: MediaItem, thumbnailManager: ThumbnailManager?, 
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
-            thumbnailManager = thumbnailManager
+            thumbnailManager = thumbnailManager,
+            videoCoverStrategy = videoCoverStrategy
         )
         if (item.isVideo) {
             Surface(

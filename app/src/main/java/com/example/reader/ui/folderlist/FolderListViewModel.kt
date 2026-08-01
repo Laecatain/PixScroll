@@ -112,6 +112,15 @@ class FolderListViewModel(
                 coverSortOrder = try {
                     SortOrder.valueOf(initial.coverSortOrder)
                 } catch (_: IllegalArgumentException) { SortOrder.DESC }
+                // Re-validate initial cache with actual strategies
+                val revalidated = application?.cacheDir?.let {
+                    FolderCache.loadFolders(it,
+                        expectedFolderCoverStrategy = folderCoverStrategy.name,
+                        expectedVideoCoverStrategy = videoCoverStrategy.name)
+                }
+                if (revalidated == null || revalidated.isEmpty()) {
+                    _state.value = FolderUiState.Loading
+                }
                 loadFolders()
             }
             // ② 响应外部排序变更（设置页面写入时自动同步）
@@ -202,7 +211,7 @@ class FolderListViewModel(
         skipNextLoading = false
         loadJob = viewModelScope.launch {
             try {
-                repository.getAllFolders(sortMode = sortMode, sortOrder = sortOrder, folderCoverStrategy = folderCoverStrategy, coverSortMode = coverSortMode, coverSortOrder = coverSortOrder)
+                repository.getAllFolders(sortMode = sortMode, sortOrder = sortOrder, folderCoverStrategy = folderCoverStrategy, videoCoverStrategy = videoCoverStrategy, coverSortMode = coverSortMode, coverSortOrder = coverSortOrder)
                     .onStart { Log.d(TAG, "Flow.onStart [thread=${Thread.currentThread().name}]") }
                     .onEach { folders ->
                         Log.d(TAG, "Flow.onEach: ${folders.size} 个文件夹 [thread=${Thread.currentThread().name}]")
@@ -275,7 +284,7 @@ class FolderListViewModel(
                     // Read updated state after atomic update
                     val s = _state.value
                     if (s is FolderUiState.Success) {
-                        FolderCache.saveFolders(app.cacheDir, s.folders)
+                        FolderCache.saveFolders(app.cacheDir, s.folders, folderCoverStrategy = folderCoverStrategy.name, videoCoverStrategy = videoCoverStrategy.name)
                     }
                 }
             } catch (e: CancellationException) {

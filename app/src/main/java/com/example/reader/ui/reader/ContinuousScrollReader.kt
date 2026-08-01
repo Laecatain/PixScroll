@@ -1,4 +1,4 @@
-﻿package com.example.reader.ui.reader
+package com.example.reader.ui.reader
 
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
@@ -29,15 +29,17 @@ import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.request.Parameters
 import coil.size.Size
-import androidx.compose.ui.platform.LocalContext
 import com.example.reader.data.model.MediaItem
 import com.example.reader.ui.theme.ThemeState
+import com.example.reader.util.VideoCoverStrategy
 import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -73,7 +75,8 @@ fun ContinuousScrollReader(
     onBack: () -> Unit,
     onSwitchMode: () -> Unit,
     onVideoClick: (MediaItem) -> Unit,
-    onIndexChange: (Int) -> Unit = {}
+    onIndexChange: (Int) -> Unit = {},
+    videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
 ) {
     // ── 缩放 ──
     var showToolbar by remember { mutableStateOf(true) }
@@ -236,7 +239,7 @@ fun ContinuousScrollReader(
                 contentType = { _, item -> if (item.isVideo) "video" else "image" }
             ) { _, item ->
                 if (item.isVideo) {
-                    VideoThumbnail(item = item, onClick = { onVideoClick(item) }, screenWidthPx = screenWidthPx)
+                    VideoThumbnail(item = item, onClick = { onVideoClick(item) }, screenWidthPx = screenWidthPx, videoCoverStrategy = videoCoverStrategy)
                 } else {
                     ImageWithAspectPlaceholder(item = item, screenWidthPx = screenWidthPx)
                 }
@@ -397,12 +400,13 @@ private fun PointerEvent.panChange(): Offset {
 // ═══════════════════════════════════ 视频缩略图 ═══════════════════════════════════
 
 @Composable
-private fun VideoThumbnail(item: MediaItem, onClick: () -> Unit, screenWidthPx: Float) {
+private fun VideoThumbnail(item: MediaItem, onClick: () -> Unit, screenWidthPx: Float, videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S) {
     val context = LocalContext.current
     val model = remember(item.uri, screenWidthPx) {
         ImageRequest.Builder(context)
             .data(item.uri)
             .size(screenWidthPx.toInt())
+            .parameters(Parameters.Builder().set("video_cover_strategy", videoCoverStrategy.name).build())
             .crossfade(150)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)

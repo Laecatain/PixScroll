@@ -1,4 +1,4 @@
-﻿package com.example.reader.ui.common
+package com.example.reader.ui.common
 
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
@@ -15,6 +15,7 @@ import coil.size.Precision
 import coil.size.Size
 import com.example.reader.data.model.MediaItem
 import com.example.reader.util.ThumbnailManager
+import com.example.reader.util.VideoCoverStrategy
 import java.io.File
 
 private val PLACEHOLDER_DRAWABLE = ColorDrawable(0xFF2C2C2E.toInt())
@@ -62,10 +63,11 @@ fun AsyncGridImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
-    thumbnailManager: ThumbnailManager? = null
+    thumbnailManager: ThumbnailManager? = null,
+    videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
 ) {
     val context = LocalContext.current
-    val model = remember(item, thumbnailManager) {
+    val model = remember(item, thumbnailManager, videoCoverStrategy) {
         val thumbnailPath = item.thumbnailPath
         if (thumbnailPath != null) {
             // L2 缓存命中：直读缓存文件，EXACT 精度避免 Coil 二次缩放

@@ -67,7 +67,10 @@ class CustomVideoFrameDecoder(
             )
 
             // ── 帧抽取（native 缩放优先） ──
-            val bitmap = extractFrame(retriever, dstWidth, dstHeight)
+            val strategyName = options.parameters.value("video_cover_strategy") as? String
+            val strategy = try { VideoCoverStrategy.valueOf(strategyName ?: "EXACT_1S") } catch (_: Exception) { VideoCoverStrategy.EXACT_1S }
+
+            val bitmap = extractFrame(retriever, dstWidth, dstHeight, strategy)
                 ?: throw IOException("Frame extraction returned null")
 
             DecodeResult(
@@ -135,17 +138,25 @@ class CustomVideoFrameDecoder(
     private fun extractFrame(
         retriever: MediaMetadataRetriever,
         width: Int,
-        height: Int
+        height: Int,
+        strategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S
     ): Bitmap? {
+        val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        val timeUs = when (strategy) {
+            VideoCoverStrategy.EXACT_1S -> 1_000_000L
+            VideoCoverStrategy.MID_FRAME -> { val s = durationMs.coerceAtLeast(1000); ((s * 4 / 10).coerceIn(500, s - 200)) * 1000L }
+            VideoCoverStrategy.CLOSEST_KEYFRAME -> { val s = durationMs.coerceAtLeast(1000); ((s * 3 / 10).coerceIn(500, s - 200)) * 1000L }
+        }
+
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             retriever.getScaledFrameAtTime(
-                1_000_000L,                                          // 1s，避开黑屏片头
+                timeUs,                                          // 根据 strategy 计算的抽帧时间，避开黑屏片头
                 MediaMetadataRetriever.OPTION_CLOSEST_SYNC,           // 最近关键帧
                 width, height
             )
         } else {
             val full = retriever.getFrameAtTime(
-                1_000_000L,
+                timeUs,
                 MediaMetadataRetriever.OPTION_CLOSEST_SYNC
             ) ?: return null
             Bitmap.createScaledBitmap(full, width, height, true).also {

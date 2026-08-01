@@ -189,6 +189,7 @@ fun FolderListScreen(
                                         FolderGridCard(
                                             folder = folder,
                                             thumbnailManager = thumbnailManager,
+                                            videoCoverStrategy = viewModel.videoCoverStrategy,
                                             onClick = { onFolderClick(folder, clickMediaType) }
                                         )
                                     }

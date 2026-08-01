@@ -10,17 +10,42 @@ object FolderCache {
     private const val FOLDERS_CACHE_FILE = "folders_cache.json"
     private const val HIDDEN_CACHE_FILE = "hidden_cache.json"
 
-    fun saveFolders(cacheDir: File, folders: List<MediaFolder>) {
+    fun saveFolders(
+        cacheDir: File,
+        folders: List<MediaFolder>,
+        folderCoverStrategy: String = "LATEST",
+        videoCoverStrategy: String = "EXACT_1S"
+    ) {
         try {
-            File(cacheDir, FOLDERS_CACHE_FILE).writeText(encodeFolders(folders))
+            val header = "$folderCoverStrategy|$videoCoverStrategy"
+            val body = encodeFolders(folders)
+            File(cacheDir, FOLDERS_CACHE_FILE).writeText(header + '\n' + body)
         } catch (_: Exception) { }
     }
 
-    fun loadFolders(cacheDir: File): List<MediaFolder> {
+    fun loadFolders(
+        cacheDir: File,
+        expectedFolderCoverStrategy: String = "LATEST",
+        expectedVideoCoverStrategy: String = "EXACT_1S"
+    ): List<MediaFolder> {
         return try {
             val file = File(cacheDir, FOLDERS_CACHE_FILE)
             if (!file.exists()) return emptyList()
-            decodeFolders(file.readText())
+            val text = file.readText()
+            if (text.startsWith("[")) {
+                decodeFolders(text)
+            } else {
+                val nl = text.indexOf('\n')
+                if (nl < 0) return emptyList()
+                val header = text.substring(0, nl)
+                val body = text.substring(nl + 1)
+                val parts = header.split("|")
+                if (parts.size < 2) return emptyList()
+                if (parts[0] != expectedFolderCoverStrategy || parts[1] != expectedVideoCoverStrategy) {
+                    return emptyList()
+                }
+                decodeFolders(body)
+            }
         } catch (_: Exception) {
             emptyList()
         }

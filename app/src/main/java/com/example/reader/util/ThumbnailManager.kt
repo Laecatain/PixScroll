@@ -265,8 +265,8 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
             val (targetW, targetH) = computeTargetSize(origWidth, origHeight, THUMB_MAX_DIMENSION)
 
             retriever.getScaledFrameAtTime(
-                timeUs,                                          // 1s，避开黑屏片头
-                MediaMetadataRetriever.OPTION_CLOSEST,           // 最近关键帧，O(1)
+                timeUs,                                          // 根据 strategy 计算的抽帧时间
+                MediaMetadataRetriever.OPTION_CLOSEST,           // 最近帧（含非关键帧），精度最高
                 targetW, targetH
             )
         } else {
@@ -278,22 +278,6 @@ class ThumbnailManager internal constructor(private val thumbDir: File) {
         }
     }
 
-    private fun isMostlyBlack(bitmap: Bitmap, threshold: Float = 0.05f): Boolean {
-        val w = bitmap.width.coerceAtMost(100)
-        val h = bitmap.height.coerceAtMost(100)
-        val scaled = Bitmap.createScaledBitmap(bitmap, w, h, true)
-        val pixels = IntArray(w * h)
-        scaled.getPixels(pixels, 0, w, 0, 0, w, h)
-        if (scaled !== bitmap) scaled.recycle()
-
-        val darkCount = pixels.count { pixel ->
-            val r = (pixel shr 16) and 0xFF
-            val g = (pixel shr 8) and 0xFF
-            val b = pixel and 0xFF
-            r < 30 && g < 30 && b < 30
-        }
-        return darkCount.toFloat() / pixels.size > (1f - threshold)
-    }
 
     /** 计算保持宽高比的缩放目标尺寸，最长边不超过 maxDimension。 */
     private fun computeTargetSize(origW: Int, origH: Int, maxDimension: Int): Pair<Int, Int> {
