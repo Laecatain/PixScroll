@@ -2,6 +2,7 @@ package com.example.reader.data.repository
 
 import com.example.reader.data.model.MediaFolder
 import com.example.reader.util.FolderCoverStrategy
+import com.example.reader.util.VideoCoverStrategy
 import com.example.reader.data.model.MediaItem
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -33,6 +34,7 @@ class FakeMediaRepository : MediaRepository {
         sortOrder: SortOrder,
         includeHidden: Boolean,
         folderCoverStrategy: FolderCoverStrategy,
+        videoCoverStrategy: VideoCoverStrategy,
         coverSortMode: SortMode,
         coverSortOrder: SortOrder
     ): Flow<List<MediaFolder>> {

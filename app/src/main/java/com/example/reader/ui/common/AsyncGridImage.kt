@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.request.Parameters
 import coil.size.Precision
 import coil.size.Size
 import com.example.reader.data.model.MediaItem
@@ -81,7 +82,7 @@ fun AsyncGridImage(
                 .build()
         } else if (item.isVideo && thumbnailManager != null) {
             val cachedFile = thumbnailManager.getThumbFile(
-                item.folderPath, item.dateModified, item.size
+                item.folderPath, item.dateModified, item.size, videoCoverStrategy
             )
             if (cachedFile.exists()) {
                 // 磁盘缓存命中：直读 JPEG，无需打开视频文件
@@ -98,13 +99,14 @@ fun AsyncGridImage(
                 ImageRequest.Builder(context)
                     .data(item.uri)
                     .size(Size(300, 300))
+                    .parameters(Parameters.Builder().set("video_cover_strategy", videoCoverStrategy.name).build())
                     .crossfade(100)
                     .placeholder(PLACEHOLDER_DRAWABLE)
                     .listener(onSuccess = { _, result ->
                         val drawable = result.drawable
                         if (drawable is BitmapDrawable) {
                             val file = thumbnailManager.getThumbFile(
-                                item.folderPath, item.dateModified, item.size
+                                item.folderPath, item.dateModified, item.size, videoCoverStrategy
                             )
                             if (!file.exists()) {
                                 val bitmap = drawable.bitmap
