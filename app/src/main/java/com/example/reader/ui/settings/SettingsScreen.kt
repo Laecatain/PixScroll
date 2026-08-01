@@ -1,4 +1,4 @@
-package com.example.reader.ui.settings
+﻿package com.example.reader.ui.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -160,7 +160,7 @@ fun SettingsScreen(
                 options = listOf(
                     "EXACT_1S" to "1st second",
                     "MID_FRAME" to "middle frame",
-                    "CLOSEST_KEYFRAME" to "30pct keyframe"
+                    "KEYFRAME" to "keyframe (fast)"
                 ),
                 onSelect = { viewModel.setVideoCoverStrategy(VideoCoverStrategy.valueOf(it)) }
             )
@@ -230,7 +230,7 @@ private fun SortModePicker(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text("sort by", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-        var expanded by androidx.compose.runtime.mutableStateOf(false)
+        var expanded by remember { mutableStateOf(false) }
         Box {
             TextButton(onClick = { expanded = true }) {
                 Text("${modeNames[currentMode]} ${if (currentOrder == SortOrder.DESC) "\u2193" else "\u2191"}")

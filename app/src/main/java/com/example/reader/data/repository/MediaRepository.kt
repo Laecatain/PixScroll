@@ -41,7 +41,9 @@ interface MediaRepository {
         sortMode: SortMode = SortMode.DATE,
         sortOrder: SortOrder = SortOrder.DESC,
         includeHidden: Boolean = false,
-        folderCoverStrategy: FolderCoverStrategy = FolderCoverStrategy.LATEST
+        folderCoverStrategy: FolderCoverStrategy = FolderCoverStrategy.LATEST,
+        coverSortMode: SortMode = SortMode.DATE,
+        coverSortOrder: SortOrder = SortOrder.DESC
     ): Flow<List<MediaFolder>>
 
     fun getMediaByFolder(
@@ -125,7 +127,9 @@ class AndroidMediaRepository(
         sortMode: SortMode,
         sortOrder: SortOrder,
         includeHidden: Boolean,
-        folderCoverStrategy: FolderCoverStrategy
+        folderCoverStrategy: FolderCoverStrategy,
+        coverSortMode: SortMode,
+        coverSortOrder: SortOrder
     ): Flow<List<MediaFolder>> = flow {
         val selection = StringBuilder(
             "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
@@ -249,6 +253,39 @@ class AndroidMediaRepository(
                         acc.randomCoverPath = data
                         acc.randomCoverDate = effectiveDate
                         acc.randomCoverSize = size
+                    }
+                    // Track first/last by name
+                    val nameLower = name.lowercase()
+                    if (acc.nameFirstCoverId < 0 || nameLower < acc.nameFirstCoverName) {
+                        acc.nameFirstCoverName = nameLower
+                        acc.nameFirstCoverId = fileId
+                        acc.nameFirstCoverMime = mime
+                        acc.nameFirstCoverPath = data
+                        acc.nameFirstCoverSize = size
+                        acc.nameFirstCoverDateModified = dateModified
+                    }
+                    if (acc.nameLastCoverId < 0 || nameLower > acc.nameLastCoverName) {
+                        acc.nameLastCoverName = nameLower
+                        acc.nameLastCoverId = fileId
+                        acc.nameLastCoverMime = mime
+                        acc.nameLastCoverPath = data
+                        acc.nameLastCoverSize = size
+                        acc.nameLastCoverDateModified = dateModified
+                    }
+                    // Track first/last by size
+                    if (size < acc.sizeFirstCoverSize) {
+                        acc.sizeFirstCoverSize = size
+                        acc.sizeFirstCoverId = fileId
+                        acc.sizeFirstCoverMime = mime
+                        acc.sizeFirstCoverPath = data
+                        acc.sizeFirstCoverDateModified = dateModified
+                    }
+                    if (size > acc.sizeLastCoverSize) {
+                        acc.sizeLastCoverSize = size
+                        acc.sizeLastCoverId = fileId
+                        acc.sizeLastCoverMime = mime
+                        acc.sizeLastCoverPath = data
+                        acc.sizeLastCoverDateModified = dateModified
                     }
                 }
 
@@ -427,7 +464,7 @@ class AndroidMediaRepository(
             }.let { if (sortOrder == SortOrder.ASC) it.reversed() else it }
         )
 
-        cacheDir?.let { FolderCache.saveFolders(it, folders) }
+        cacheDir?.let { FolderCache.saveFolders(it, folders, folderCoverStrategy = folderCoverStrategy.name) }
         emit(folders)
         allFoldersCache = folders
     }.flowOn(Dispatchers.IO)
