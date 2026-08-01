@@ -58,13 +58,12 @@ import kotlinx.coroutines.isActive
 import java.io.File
 
 private const val LOW_FPS_THRESHOLD = 30f
-/** Decoder-related errors that can be recovered by falling back to MediaPlayer. */
-private fun isDecoderError(error: PlaybackException): Boolean =
-    error.errorCode in setOf(
-        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-        PlaybackException.ERROR_CODE_DECODING_FAILED,
-        PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-        PlaybackException.ERROR_CODE_DRM_SYSTEM_ERROR
+/** IO 相关错误不应该降级（文件不存在/网络问题），其余一律降级到系统播放器。 */
+private fun shouldFallbackToMediaPlayer(error: PlaybackException): Boolean =
+    error.errorCode !in setOf(
+        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
     )
 
 @Composable
@@ -201,7 +200,7 @@ fun VideoPlayerScreen(
                 isBuffering = false
             }
             override fun onPlayerError(error: PlaybackException) {
-                if (isDecoderError(error)) {
+                if (shouldFallbackToMediaPlayer(error)) {
                     Log.e("VideoPlayer", "decoder_error: ${error.errorCode}, falling back to MediaPlayer")
                     // Release ExoPlayer here. Compose will still call onDispose when
                     // DisposableEffect leaves the tree on recomposition, so we set
