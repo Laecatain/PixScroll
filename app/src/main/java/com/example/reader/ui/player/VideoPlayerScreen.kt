@@ -84,12 +84,16 @@ fun VideoPlayerScreen(
 
     // ── 核心状态（在路由判断之前声明，供降级路径使用）──
     var shouldFallbackToMediaPlayer by remember { mutableStateOf(false) }
+    var retryKey by remember { mutableIntStateOf(0) }
 
     // ── ExoPlayer 解码器失败时降级到 MediaPlayer ──
     if (shouldFallbackToMediaPlayer) {
         MediaPlayerScreen(videoUri = videoUri, thumbnailPath = thumbnailPath, onBack = onBack)
         return
     }
+
+    // ── key(retryKey) 强制重组：重试时 retryKey++ → 销毁旧 ExoPlayer，创建新的 ──
+    key(retryKey) {
 
     // -- ExoPlayer path --
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -403,17 +407,7 @@ fun VideoPlayerScreen(
 
     // ── 重试 ──
     val retry: () -> Unit = {
-        hasError = false
-        errorMessage = null
-        isFirstFrameRendered = false
-        isBuffering = false
-        sliderPosition = 0L
-        playerPosition = 0L
-        exoPlayer.stop()
-        exoPlayer.clearMediaItems()
-        exoPlayer.setMediaItem(MediaItem.fromUri(videoUri))
-        exoPlayer.prepare()
-        exoPlayer.playWhenReady = true
+        retryKey++
     }
 
     // ── 返回手势拦截 ──
@@ -491,14 +485,16 @@ fun VideoPlayerScreen(
                     Spacer(Modifier.height(12.dp))
                     OutlinedButton(onClick = {
                         try {
-                            val intent = android.content.Intent(
-                                android.content.Intent.ACTION_VIEW
+                            val viewIntent = android.content.Intent(
+                                android.content.Intent.ACTION_VIEW, videoUri
                             ).apply {
-                                setDataAndType(videoUri, "video/*")
                                 addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
-                            context.startActivity(intent)
-                        } catch (_: Exception) {
+                            context.startActivity(
+                                android.content.Intent.createChooser(viewIntent, "选择播放器")
+                            )
+                        } catch (e: Exception) {
+                            Log.e("VideoPlayer", "external player failed", e)
                             errorMessage = "没有可用的外部播放器"
                         }
                     }) {
@@ -640,14 +636,17 @@ fun VideoPlayerScreen(
                     .padding(top = 48.dp)
                     .clickable {
                         try {
-                            val intent = android.content.Intent(
-                                android.content.Intent.ACTION_VIEW
+                            val viewIntent = android.content.Intent(
+                                android.content.Intent.ACTION_VIEW, videoUri
                             ).apply {
-                                setDataAndType(videoUri, "video/*")
                                 addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
-                            context.startActivity(intent)
-                        } catch (_: Exception) {}
+                            context.startActivity(
+                                android.content.Intent.createChooser(viewIntent, "选择播放器")
+                            )
+                        } catch (e: Exception) {
+                            Log.e("VideoPlayer", "external player failed", e)
+                        }
                     },
                 shape = RoundedCornerShape(8.dp),
                 color = Color.Black.copy(alpha = 0.75f),
@@ -783,6 +782,7 @@ fun VideoPlayerScreen(
             }
         }
     }
+    } // key(retryKey)
 }
 
 private data class VideoPlayerSession(
