@@ -148,16 +148,19 @@ class ReaderViewModel(
                     val newMode = try { SortMode.valueOf(newModeName) } catch (_: IllegalArgumentException) { SortMode.DATE }
                     val newOrder = try { SortOrder.valueOf(newOrderName) } catch (_: IllegalArgumentException) { SortOrder.DESC }
                     val s = _state.value
-                    if (newMode != s.sortMode || newOrder != s.sortOrder) {
-                        _state.value = s.copy(sortMode = newMode, sortOrder = newOrder)
-                        loadMedia()
-                    }
                     val newVideoStrategy = try {
                         VideoCoverStrategy.valueOf(settings.videoCoverStrategy)
                     } catch (_: IllegalArgumentException) { VideoCoverStrategy.EXACT_1S }
-                    if (newVideoStrategy != videoCoverStrategy) {
-                        thumbnailManager?.clearCache()
-                        videoCoverStrategy = newVideoStrategy
+                    val sortChanged = newMode != s.sortMode || newOrder != s.sortOrder
+                    val strategyChanged = newVideoStrategy != videoCoverStrategy
+                    if (sortChanged || strategyChanged) {
+                        if (sortChanged) {
+                            _state.value = s.copy(sortMode = newMode, sortOrder = newOrder)
+                        }
+                        if (strategyChanged) {
+                            thumbnailManager?.clearCache()
+                            videoCoverStrategy = newVideoStrategy
+                        }
                         loadMedia()
                     }
                 }

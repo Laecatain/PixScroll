@@ -486,8 +486,9 @@ fun VideoPlayerScreen(
                     OutlinedButton(onClick = {
                         try {
                             val viewIntent = android.content.Intent(
-                                android.content.Intent.ACTION_VIEW, videoUri
+                                android.content.Intent.ACTION_VIEW
                             ).apply {
+                                setDataAndType(videoUri, "video/*")
                                 addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                             context.startActivity(
@@ -637,8 +638,9 @@ fun VideoPlayerScreen(
                     .clickable {
                         try {
                             val viewIntent = android.content.Intent(
-                                android.content.Intent.ACTION_VIEW, videoUri
+                                android.content.Intent.ACTION_VIEW
                             ).apply {
+                                setDataAndType(videoUri, "video/*")
                                 addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                             context.startActivity(
