@@ -16,6 +16,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -34,6 +36,8 @@ import com.example.reader.data.model.MediaItem
 import com.example.reader.ui.common.AsyncGridImage
 import com.example.reader.ui.common.FolderGridCard
 import com.example.reader.util.ThumbnailManager
+import com.example.reader.util.VideoCoverStrategy
+import com.example.reader.util.dataStore
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,6 +54,12 @@ fun SearchScreen(
     val focusRequester = remember { FocusRequester() }
     val context = LocalContext.current
     val thumbnailManager = remember { ThumbnailManager(context) }
+    val videoCoverStrategy = remember {
+        try {
+            val prefs = runBlocking { context.dataStore.data.first() }
+            VideoCoverStrategy.valueOf(prefs[com.example.reader.util.PreferenceKeys.VIDEO_COVER_STRATEGY] ?: "EXACT_1S")
+        } catch (_: Exception) { VideoCoverStrategy.EXACT_1S }
+    }
     val totalResultCount = state.folderResults.size + state.videoResults.size + state.imageResults.size
     val selectedResultsCount = when (state.selectedCategory) {
         SearchCategory.FOLDERS -> state.folderResults.size
@@ -175,6 +185,7 @@ fun SearchScreen(
                         FolderGridCard(
                             folder = folder,
                             thumbnailManager = thumbnailManager,
+                            videoCoverStrategy = videoCoverStrategy,
                             onClick = { onFolderClick(folder) }
                         )
                     }
@@ -197,6 +208,7 @@ fun SearchScreen(
                         SearchResultCell(
                             item = item,
                             thumbnailManager = thumbnailManager,
+                            videoCoverStrategy = videoCoverStrategy,
                             onClick = {
                                 if (item.isVideo) onVideoClick(item)
                                 else onImageClick(item)
@@ -245,7 +257,7 @@ private fun SearchState.resultCount(category: SearchCategory): Int = when (categ
 }
 
 @Composable
-private fun SearchResultCell(item: MediaItem, thumbnailManager: ThumbnailManager?, onClick: () -> Unit) {
+private fun SearchResultCell(item: MediaItem, thumbnailManager: ThumbnailManager?, videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -259,7 +271,8 @@ private fun SearchResultCell(item: MediaItem, thumbnailManager: ThumbnailManager
             contentDescription = item.name,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
-            thumbnailManager = thumbnailManager
+            thumbnailManager = thumbnailManager,
+            videoCoverStrategy = videoCoverStrategy
         )
         if (item.isVideo) {
             Surface(
