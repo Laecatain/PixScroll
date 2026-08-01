@@ -32,7 +32,11 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import com.example.reader.util.PreferenceKeys
+import com.example.reader.util.dataStore
 
 enum class SortMode { NAME, DATE, SIZE }
 enum class SortOrder { ASC, DESC }
@@ -90,7 +94,18 @@ class AndroidMediaRepository(
     init {
         cacheDir?.let { searchIndex.loadFromDisk(it) }
         cachedHiddenParents = cacheDir?.let { FolderCache.loadHiddenParents(it) }?.takeIf { it.isNotEmpty() }
-        allFoldersCache = cacheDir?.let { FolderCache.loadFolders(it) }?.takeIf { it.isNotEmpty() }
+        val initStrategies = try {
+            val prefs = runBlocking { context.dataStore.data.first() }
+            Pair(
+                prefs[PreferenceKeys.FOLDER_COVER_STRATEGY] ?: "LATEST",
+                prefs[PreferenceKeys.VIDEO_COVER_STRATEGY] ?: "EXACT_1S"
+            )
+        } catch (_: Exception) { Pair("LATEST", "EXACT_1S") }
+        allFoldersCache = cacheDir?.let {
+            FolderCache.loadFolders(it,
+                expectedFolderCoverStrategy = initStrategies.first,
+                expectedVideoCoverStrategy = initStrategies.second)
+        }?.takeIf { it.isNotEmpty() }
         Log.d(TAG, "init: indexLoaded=${searchIndex.isBuilt} hiddenCached=${cachedHiddenParents != null} foldersCached=${allFoldersCache != null}")
         registerMediaObserver()
     }
