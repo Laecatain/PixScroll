@@ -160,7 +160,7 @@ fun SettingsScreen(
                 options = listOf(
                     "EXACT_1S" to "1st second",
                     "MID_FRAME" to "middle frame",
-                    "KEYFRAME" to "keyframe (fast)"
+                    "CLOSEST_KEYFRAME" to "keyframe (fast)"
                 ),
                 onSelect = { viewModel.setVideoCoverStrategy(VideoCoverStrategy.valueOf(it)) }
             )
