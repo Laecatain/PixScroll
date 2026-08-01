@@ -63,6 +63,7 @@ private fun isDecoderError(error: PlaybackException): Boolean =
     error.errorCode in setOf(
         PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
         PlaybackException.ERROR_CODE_DECODING_FAILED,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
         PlaybackException.ERROR_CODE_DRM_SYSTEM_ERROR
     )
 
