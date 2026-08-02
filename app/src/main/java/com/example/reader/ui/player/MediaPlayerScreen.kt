@@ -78,6 +78,30 @@ fun MediaPlayerScreen(
     var surfaceTextureRef by remember { mutableStateOf<SurfaceTexture?>(null) }
     var surfaceRef by remember { mutableStateOf<Surface?>(null) }
 
+    // -- Aspect ratio state --
+    var videoWidth by remember { mutableIntStateOf(0) }
+    var videoHeight by remember { mutableIntStateOf(0) }
+    var textureViewRef by remember { mutableStateOf<TextureView?>(null) }
+    var viewWidth by remember { mutableIntStateOf(0) }
+    var viewHeight by remember { mutableIntStateOf(0) }
+
+    fun applyAspectRatioMatrix() {
+        val vw = videoWidth; val vh = videoHeight
+        val tw = viewWidth; val th = viewHeight
+        if (vw <= 0 || vh <= 0 || tw <= 0 || th <= 0) return
+        val textureView = textureViewRef ?: return
+        val scaleX = tw.toFloat() / vw
+        val scaleY = th.toFloat() / vh
+        val scale = minOf(scaleX, scaleY)
+        val matrix = android.graphics.Matrix()
+        matrix.setScale(
+            scale * vw / tw,   // normalized to view width
+            scale * vh / th,   // normalized to view height
+            tw / 2f, th / 2f  // pivot at center
+        )
+        textureView.setTransform(matrix)
+    }
+
     // -- Generation counter for stale-callback protection --
     var playerGeneration by remember { mutableIntStateOf(0) }
 
@@ -189,6 +213,9 @@ fun MediaPlayerScreen(
             mp.setOnVideoSizeChangedListener { _, width, height ->
                 if (playerGeneration != gen) return@setOnVideoSizeChangedListener
                 Log.i(TAG, "onVideoSizeChanged: ${width}x${height} gen=$gen")
+                videoWidth = width
+                videoHeight = height
+                applyAspectRatioMatrix()
             }
             mp.prepareAsync()
             mediaPlayer = mp
@@ -211,6 +238,9 @@ fun MediaPlayerScreen(
             }
             override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {
                 Log.i(TAG, "onSurfaceTextureSizeChanged: ${width}x${height}")
+                viewWidth = width
+                viewHeight = height
+                applyAspectRatioMatrix()
             }
             override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
                 Log.i(TAG, "onSurfaceTextureDestroyed")
@@ -308,6 +338,7 @@ fun MediaPlayerScreen(
                 TextureView(ctx).apply {
                     surfaceTextureListener = textureListener
                     keepScreenOn = true
+                    textureViewRef = this
                     // Force hardware layer so TextureView composites correctly
                     // within Compose's rendering pipeline
                     setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
