@@ -78,30 +78,9 @@ fun MediaPlayerScreen(
     var surfaceTextureRef by remember { mutableStateOf<SurfaceTexture?>(null) }
     var surfaceRef by remember { mutableStateOf<Surface?>(null) }
 
-    // -- Aspect ratio state --
+    // -- 视频宽高比：用于让 TextureView 容器本身保持正确比例 --
     var videoWidth by remember { mutableIntStateOf(0) }
     var videoHeight by remember { mutableIntStateOf(0) }
-    var textureViewRef by remember { mutableStateOf<TextureView?>(null) }
-    var viewWidth by remember { mutableIntStateOf(0) }
-    var viewHeight by remember { mutableIntStateOf(0) }
-
-    fun applyAspectRatioMatrix() {
-        val vw = videoWidth; val vh = videoHeight
-        val tw = viewWidth; val th = viewHeight
-        if (vw <= 0 || vh <= 0 || tw <= 0 || th <= 0) return
-        val textureView = textureViewRef ?: return
-        // 等比缩放：取较小的 scale，视频不超出 view
-        val scale = minOf(tw.toFloat() / vw, th.toFloat() / vh)
-        val scaledW = vw * scale
-        val scaledH = vh * scale
-        // 居中偏移
-        val tx = (tw - scaledW) / 2f
-        val ty = (th - scaledH) / 2f
-        val matrix = android.graphics.Matrix()
-        matrix.setScale(scale, scale)
-        matrix.postTranslate(tx, ty)
-        textureView.setTransform(matrix)
-    }
 
     // -- Generation counter for stale-callback protection --
     var playerGeneration by remember { mutableIntStateOf(0) }
@@ -175,8 +154,7 @@ fun MediaPlayerScreen(
                     return@setOnPreparedListener
                 }
                 // Apply scaling mode when player is ready and surface is bound
-                // player.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT)
-                // 注释掉：rmvb 等厂商解码器不认此设置，与 setTransform(Matrix) 冲突导致拉伸
+                player.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT)
                 Log.i(TAG, "onPrepared: duration=${player.duration}ms gen=$gen")
                 duration = player.duration.toLong().coerceAtLeast(0L)
                 isBuffering = false
@@ -217,7 +195,6 @@ fun MediaPlayerScreen(
                 Log.i(TAG, "onVideoSizeChanged: ${width}x${height} gen=$gen")
                 videoWidth = width
                 videoHeight = height
-                applyAspectRatioMatrix()
             }
             mp.prepareAsync()
             mediaPlayer = mp
@@ -236,15 +213,10 @@ fun MediaPlayerScreen(
                 Log.i(TAG, "onSurfaceTextureAvailable: ${width}x${height}")
                 surfaceTextureRef = st
                 surfaceReady = true
-                viewWidth = width
-                viewHeight = height
                 createAndAttachPlayer(st)
             }
             override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {
                 Log.i(TAG, "onSurfaceTextureSizeChanged: ${width}x${height}")
-                viewWidth = width
-                viewHeight = height
-                applyAspectRatioMatrix()
             }
             override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
                 Log.i(TAG, "onSurfaceTextureDestroyed")
@@ -342,13 +314,16 @@ fun MediaPlayerScreen(
                 TextureView(ctx).apply {
                     surfaceTextureListener = textureListener
                     keepScreenOn = true
-                    textureViewRef = this
                     // Force hardware layer so TextureView composites correctly
                     // within Compose's rendering pipeline
                     setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = if (videoWidth > 0 && videoHeight > 0) {
+                Modifier.fillMaxWidth().aspectRatio(videoWidth.toFloat() / videoHeight)
+            } else {
+                Modifier.fillMaxSize()
+            }
         )
 
         // -- Thumbnail placeholder --
