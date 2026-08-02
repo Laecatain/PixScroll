@@ -90,15 +90,16 @@ fun MediaPlayerScreen(
         val tw = viewWidth; val th = viewHeight
         if (vw <= 0 || vh <= 0 || tw <= 0 || th <= 0) return
         val textureView = textureViewRef ?: return
-        val scaleX = tw.toFloat() / vw
-        val scaleY = th.toFloat() / vh
-        val scale = minOf(scaleX, scaleY)
+        // 等比缩放：取较小的 scale，视频不超出 view
+        val scale = minOf(tw.toFloat() / vw, th.toFloat() / vh)
+        val scaledW = vw * scale
+        val scaledH = vh * scale
+        // 居中偏移
+        val tx = (tw - scaledW) / 2f
+        val ty = (th - scaledH) / 2f
         val matrix = android.graphics.Matrix()
-        matrix.setScale(
-            scale * vw / tw,   // normalized to view width
-            scale * vh / th,   // normalized to view height
-            tw / 2f, th / 2f  // pivot at center
-        )
+        matrix.setScale(scale, scale)
+        matrix.postTranslate(tx, ty)
         textureView.setTransform(matrix)
     }
 
