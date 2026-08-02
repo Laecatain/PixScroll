@@ -304,7 +304,7 @@ fun MediaPlayerScreen(
     //  UI
     // ══════════════════════════════════════════════
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
 
         // -- Video rendering layer --
         // TextureView renders in the normal View hierarchy (no independent compositor window).
