@@ -235,6 +235,8 @@ fun MediaPlayerScreen(
                 Log.i(TAG, "onSurfaceTextureAvailable: ${width}x${height}")
                 surfaceTextureRef = st
                 surfaceReady = true
+                viewWidth = width
+                viewHeight = height
                 createAndAttachPlayer(st)
             }
             override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {
