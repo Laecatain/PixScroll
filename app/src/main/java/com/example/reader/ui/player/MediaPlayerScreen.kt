@@ -175,7 +175,8 @@ fun MediaPlayerScreen(
                     return@setOnPreparedListener
                 }
                 // Apply scaling mode when player is ready and surface is bound
-                player.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT)
+                // player.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT)
+                // 注释掉：rmvb 等厂商解码器不认此设置，与 setTransform(Matrix) 冲突导致拉伸
                 Log.i(TAG, "onPrepared: duration=${player.duration}ms gen=$gen")
                 duration = player.duration.toLong().coerceAtLeast(0L)
                 isBuffering = false
