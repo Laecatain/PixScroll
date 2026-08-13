@@ -92,10 +92,16 @@ class FolderListViewModel(
                 expectedFolderCoverStrategy = initCoverStrategy.first,
                 expectedVideoCoverStrategy = initCoverStrategy.second)
         }
-        if (cached != null && cached.isNotEmpty()) {
+        // 重命名后 coverPath 可能已失效，校验文件是否存在
+        val validated = cached?.map { folder ->
+            if (folder.coverPath.isNotEmpty() && !java.io.File(folder.coverPath).exists()) {
+                folder.copy(coverImageUri = null, coverThumbnailPath = null)
+            } else folder
+        }
+        if (validated != null && validated.isNotEmpty()) {
             Log.d(TAG, "缓存命中: ${cached.size} 个文件夹")
             skipNextLoading = true
-            _state = MutableStateFlow(FolderUiState.Success(cached))
+            _state = MutableStateFlow(FolderUiState.Success(validated))
         } else {
             _state = MutableStateFlow(FolderUiState.Loading)
         }
@@ -227,6 +233,7 @@ class FolderListViewModel(
 
     private fun loadFolders() {
         loadJob?.cancel()
+        repository.resetFolderScanLock()
         if (!skipNextLoading && _state.value !is FolderUiState.Success) {
             _state.value = FolderUiState.Loading
         }

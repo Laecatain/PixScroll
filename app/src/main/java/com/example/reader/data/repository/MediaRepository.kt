@@ -65,6 +65,9 @@ interface MediaRepository {
     val mediaStoreChanges: kotlinx.coroutines.flow.SharedFlow<Unit>
 
     fun searchFolders(query: String): Flow<List<MediaFolder>>
+
+    /** 重置扫描锁，供取消 Job 后调用 */
+    fun resetFolderScanLock() {}
 }
 
 private val IMAGE_EXTENSIONS = setOf(
@@ -83,6 +86,8 @@ class AndroidMediaRepository(
     private var cachedHiddenParents: Set<Long>? = null
     @Volatile
     private var allFoldersCache: List<MediaFolder>? = null
+    @Volatile
+    private var isFolderScanRunning = false
     val searchIndex = SearchIndex()
 
     private val _mediaStoreChanges = MutableSharedFlow<Unit>(
@@ -105,7 +110,12 @@ class AndroidMediaRepository(
             FolderCache.loadFolders(it,
                 expectedFolderCoverStrategy = initStrategies.first,
                 expectedVideoCoverStrategy = initStrategies.second)
-        }?.takeIf { it.isNotEmpty() }
+        }?.takeIf { it.isNotEmpty() }?.map { folder ->
+            // 重命名/移动后 coverPath 文件可能已失效，清空封面触发重新生成
+            if (folder.coverPath.isNotEmpty() && !File(folder.coverPath).exists()) {
+                folder.copy(coverImageUri = null, coverThumbnailPath = null)
+            } else folder
+        }
         Log.d(TAG, "init: indexLoaded=${searchIndex.isBuilt} hiddenCached=${cachedHiddenParents != null} foldersCached=${allFoldersCache != null}")
         registerMediaObserver()
     }
@@ -149,6 +159,13 @@ class AndroidMediaRepository(
         coverSortMode: SortMode,
         coverSortOrder: SortOrder
     ): Flow<List<MediaFolder>> = flow {
+        // 防止重复扫描：上一次还在跑就跳过，避免 IO 风暴
+        if (isFolderScanRunning) {
+            allFoldersCache?.let { emit(it) }
+            return@flow
+        }
+        isFolderScanRunning = true
+        try {
         val selection = StringBuilder(
             "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)"
         )
@@ -485,6 +502,9 @@ class AndroidMediaRepository(
         cacheDir?.let { FolderCache.saveFolders(it, folders, folderCoverStrategy = folderCoverStrategy.name, videoCoverStrategy = videoCoverStrategy.name) }
         emit(folders)
         allFoldersCache = folders
+        } finally {
+            isFolderScanRunning = false
+        }
     }.flowOn(Dispatchers.IO)
 
     // ─── 媒体列表（Hybrid: MediaStore → FileTreeWalk）───
@@ -1099,6 +1119,9 @@ class AndroidMediaRepository(
             }
         }
     }
+
+    /** 重置扫描锁，供 ViewModel 取消 Job 后调用 */
+    override fun resetFolderScanLock() { isFolderScanRunning = false }
 
     companion object {
         private const val TAG = "MediaRepo"
