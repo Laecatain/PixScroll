@@ -1,110 +1,83 @@
+<div align="center">
+
+<!-- TODO: Replace with project logo -->
+<!-- <img src="logo.svg" alt="PixScroll" width="160" /> -->
+
 # PixScroll
 
-**English** | **[中文](README.md)**
-
-> **Pixel + Scroll** — your images flow seamlessly, a local media reader with zero friction.
+**Pixel + Scroll** — your images flow seamlessly, a local media reader with zero friction
 
 [![Android](https://img.shields.io/badge/Android-26%2B-green?logo=android)](https://developer.android.com/about/versions/nougat)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.0-7F52FF?logo=kotlin)](https://kotlinlang.org)
-[![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-BOM%202025.03-4285F4?logo=googlechrome)](https://developer.android.com/jetpack/compose)
+[![Compose](https://img.shields.io/badge/Jetpack%20Compose-BOM%202025.03-4285F4?logo=googlechrome)](https://developer.android.com/jetpack/compose)
 [![License](https://img.shields.io/badge/License-Non--Commercial-blue)](#license)
+[![Release](https://img.shields.io/github/v/release/Laecatain/PixScroll)](https://github.com/Laecatain/PixScroll/releases/latest)
 
-<!-- TODO: Add screenshots / GIF here -->
-<!-- ![Folder List](screenshots/folder_list.png) ![Reader](screenshots/reader.png) ![Video Player](screenshots/video_player.png) -->
+**English** | **[中文](README.md)**
 
-**[⬇ Download Latest Release](https://github.com/Laecatain/PixScroll/releases/latest)**
+**[⬇ Download APK](https://github.com/Laecatain/PixScroll/releases/latest)**
+
+</div>
+
+<!-- TODO: Replace with screenshots/GIF -->
+<!-- <div align="center">
+  <img src="screenshots/folder_list.png" width="200" />
+  <img src="screenshots/reader.png" width="200" />
+  <img src="screenshots/video_player.png" width="200" />
+</div> -->
 
 ---
 
 ## Features
 
-- **Folder browsing** — TabRow tabs to switch images/videos, auto-scan device storage
-- **Dual-mode reader**
-  - **Continuous Scroll** — vertical continuous scrolling, ideal for long images & manga, images centered in viewport
-  - **Pager** — swipe left/right, page by page browsing
-  - Pinch zoom, double-tap reset, progress slider navigation
-- **Video player** — ExoPlayer (Media3) with minimal custom controls
-  - Immersive fullscreen playback
-  - Double-tap left/right to seek ±10s
-  - Long-press for 3× speed
-  - Custom VideoFrameDecoder for video thumbnails
-- **Hybrid media engine** — two-phase scan: MediaStore results first, then FileTreeWalk supplements unindexed files (jpg/png/webp/heic/avif/mp4/mkv/...)
-- **Global search** — debounced input, cross-folder search for images and videos
-- **Persistent sorting** — sort by name/date/size, ascending/descending, persisted via DataStore
-- **Theme switching** — Light / Dark / AMOLED Black — three modes
-- **Instant cold start** — JSON-cached folder list and .nomedia scan results
-- **Performance**
-  - Coil 3-level cache + Precision.EXACT + Generation ID concurrency control
-  - Dual-slot video preload + zero-exit SurfaceView management
-- **Zero DI framework** — manual ViewModel Factory, lightweight & simple
+📂 **Folder browsing** — auto-scan device storage, images & videos organized by folder
 
-## Tech Stack
+📖 **Dual-mode reader**
+- **Continuous scroll** — vertical scrolling, perfect for long images & manga
+- **Pager** — swipe left/right, page by page
+- Pinch zoom · Double-tap reset · Progress slider
 
-| Layer | Library |
-|---|---|
-| Language | Kotlin 2.0.0 |
-| UI | Jetpack Compose (BOM 2025.03.00) + Material 3 |
-| Architecture | MVVM (ViewModel + `StateFlow`) |
-| Navigation | Navigation Compose 2.7.7 |
-| Image Loading | Coil 2.6.0 (coil-compose, coil-video, `VideoFrameDecoder`) |
-| Video Playback | Media3 ExoPlayer 1.3.1 |
-| Storage | DataStore Preferences 1.1.1 |
-| Build | Gradle 8.7 + AGP 8.4.0 |
-| Testing | JUnit 4, Turbine 1.1.0, kotlinx-coroutines-test |
-| Min SDK | 26 (Android 8.0) |
-| Target SDK | 34 (Android 14) |
+🎬 **Video playback** — immersive fullscreen, double-tap to seek, long-press 3× speed
 
-## Architecture
+🔍 **Global search** — search images & videos across all folders
 
-MVVM unidirectional data flow: ViewModel → `StateFlow<State>` → Composable `collectAsState()`
+🎨 **Three themes** — Light / Dark / AMOLED Black
 
-```
-com.example.reader/
-├── ReaderApp.kt              # Application, Coil ImageLoaderFactory
-├── MainActivity.kt            # Single Activity, permission handling
-├── navigation/NavGraph.kt     # 7 routes
-├── data/
-│   ├── model/                 # MediaItem, MediaFolder
-│   └── repository/            # MediaRepository (interface + impl)
-├── ui/
-│   ├── folderlist/            # Folder list screen
-│   ├── mediagrid/             # Media grid (reuses ReaderViewModel)
-│   ├── reader/                # Reader screen + ViewModel + 2 modes
-│   ├── search/                # Global search
-│   ├── settings/              # Settings screen
-│   ├── player/                # Video player
-│   ├── common/FastScroller.kt # Grid fast scroller
-│   └── theme/ThemeState.kt    # Theme singleton
-└── util/
-    ├── AppSettings.kt         # DataStore preferences
-    ├── FolderCache.kt         # Folder list cache
-    ├── MediaDimensionsCache.kt# Media dimensions cache
-    ├── SliderUtils.kt         # Slider utilities
-    └── PermissionHelper.kt    # Runtime permissions
-```
+⚡ **Instant cold start** — cached folder list, no re-scan on launch
 
-## Build
+🗂️ **Hybrid scanning** — MediaStore first + filesystem supplement, never misses a file
+
+↕️ **Sorting** — name / date / size, ascending / descending, auto-persisted
+
+## Supported Formats
+
+| Images | Videos |
+|--------|--------|
+| JPEG, PNG, WebP, HEIC, AVIF, GIF, SVG, BMP, TIFF | MP4, MKV, AVI, MOV, FLV, RMVB, 3GP, WebM |
+
+## Download
+
+[<img src="https://img.shields.io/badge/Download-APK-blue?style=for-the-badge&logo=android" height="40">](https://github.com/Laecatain/PixScroll/releases/latest)
+
+## Development
 
 ### Prerequisites
 
 - JDK 17 (Temurin)
 - Android SDK API 34
-- `JAVA_HOME` and `ANDROID_HOME` environment variables set
+- `JAVA_HOME` + `ANDROID_HOME`
 
-### Commands
+### Build
 
 ```bash
-# Build & install to connected device
+# Build & install to phone
 bash install.sh
 
-# Build APK only
+# Build only
 ./gradlew assembleDebug
 
-# Run all unit tests
+# Run tests
 ./gradlew testDebugUnitTest
-
-# Run specific test
-./gradlew testDebugUnitTest --tests "*ReaderViewModelTest*"
 ```
 
 ## License
