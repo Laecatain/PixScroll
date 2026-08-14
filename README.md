@@ -5,121 +5,81 @@
 
 # PixScroll
 
-[![Android](https://img.shields.io/badge/Android-26%2B-green?logo=android)](https://developer.android.com/about/versions/nougat)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.0.0-7F52FF?logo=kotlin)](https://kotlinlang.org)
-[![Compose](https://img.shields.io/badge/Jetpack%20Compose-BOM%202025.03-4285F4?logo=googlechrome)](https://developer.android.com/jetpack/compose)
-[![License](https://img.shields.io/badge/License-Non--Commercial-blue)](#license)
-[![Release](https://img.shields.io/github/v/release/Laecatain/PixScroll)](https://github.com/Laecatain/PixScroll/releases/latest)
+> **像素滚动** — 图片在指尖无缝流淌，一滑到底的本地媒体阅读器
 
-**[English](#english)** | **[中文](#中文)**
+[![GitHub Stars](https://img.shields.io/github/stars/Laecatain/PixScroll?style=social)](https://github.com/Laecatain/PixScroll/stargazers)
+[![GitHub Downloads](https://img.shields.io/github/downloads/Laecatain/PixScroll/total?color=blue&label=Downloads)](https://github.com/Laecatain/PixScroll/releases/latest)
+[![Android](https://img.shields.io/badge/Android-26%2B-green?logo=android)]()
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.0.0-7F52FF?logo=kotlin)]()
+[![Compose](https://img.shields.io/badge/Jetpack%20Compose-BOM%202025.03-4285F4?logo=googlechrome)]()
+[![License](https://img.shields.io/badge/License-Non--Commercial-blue)](#许可证)
 
-**[⬇ 下载 APK / Download APK](https://github.com/Laecatain/PixScroll/releases/latest)**
+<p align="right"><a href="README_EN.md">English</a></p>
+
+<!-- TODO: 替换为截图/GIF -->
+<!-- <p>
+  <img src="screenshots/folder_list.png" width="180" />
+  <img src="screenshots/reader.png" width="180" />
+  <img src="screenshots/video_player.png" width="180" />
+</p> -->
+
+[<img src="https://img.shields.io/badge/⬇_下载_APK_(GitHub)-181717?style=for-the-badge&logo=github&logoColor=white" height="48">](https://github.com/Laecatain/PixScroll/releases/latest)
 
 </div>
 
-<!-- TODO: 替换为截图/GIF -->
-<!-- <div align="center">
-  <img src="screenshots/folder_list.png" width="200" />
-  <img src="screenshots/reader.png" width="200" />
-  <img src="screenshots/video_player.png" width="200" />
-</div> -->
-
 ---
 
-<a id="中文"></a>
+## 功能
 
-## 中文
-
-> **像素滚动** — 图片在指尖无缝流淌，一滑到底的本地媒体阅读器
-
-### 功能
-
-📂 **文件夹浏览** — 自动扫描设备存储，图片/视频分类展示
+📂 **文件夹浏览** — 打开即用，自动按文件夹整理图片和视频
 
 📖 **双模式阅读器**
-- **滚动模式** — 上下连续滚动，适合长图和漫画
-- **翻页模式** — 左右翻页，逐页浏览
-- 双指缩放 · 双击复位 · 进度滑块
+- 上下连续滚动，看长图漫画一滑到底
+- 左右翻页，一张一张慢慢看
+- 双指缩放 · 双击复位 · 进度滑块快速跳转
 
-🎬 **视频播放** — 沉浸全屏，双击快进/快退，长按 3 倍速
+🎬 **视频播放** — 全屏沉浸，双击快进快退，长按 3 倍速
 
-🔍 **全局搜索** — 跨文件夹搜索图片和视频
+🔍 **全局搜索** — 输入关键词，跨文件夹找图找视频
 
-🎨 **三套主题** — 亮色 / 暗色 / 纯黑 (AMOLED)
+🎨 **三套主题** — 亮色 / 暗色 / 纯黑 (AMOLED 省电)
 
-⚡ **冷启动秒开** — 缓存文件夹列表，无需每次重新扫描
+⚡ **秒开** — 首次扫描后缓存，下次打开瞬间加载
 
-🗂️ **混合扫描** — MediaStore 优先 + 文件系统补充，不漏掉任何文件
+🗂️ **不漏文件** — 系统扫描 + 文件系统双重检测，隐藏文件夹也能找到
 
-↕️ **排序** — 名称 / 日期 / 大小，升序 / 降序，自动持久化
+↕️ **排序** — 名称 / 日期 / 大小，升序降序，记住你的选择
 
-### 支持格式
+## 支持格式
 
 | 图片 | 视频 |
 |------|------|
 | JPEG, PNG, WebP, HEIC, AVIF, GIF, SVG, BMP, TIFF | MP4, MKV, AVI, MOV, FLV, RMVB, 3GP, WebM |
 
-### 开发
+## 常见问题
+
+**为什么叫 PixScroll？**
+Pix (Pixel) + Scroll — 像素在指尖滚动，一滑到底的体验。
+
+**和其他相册应用有什么不同？**
+专注本地浏览，不联网、不上传。双模式阅读器（连续滚动 + 翻页）是特色，看漫画长图特别顺手。
+
+**支持哪些 Android 版本？**
+Android 8.0 (API 26) 及以上，覆盖 95%+ 的活跃设备。
+
+<details>
+<summary>开发构建</summary>
 
 ```bash
-bash install.sh          # 构建并安装到手机
-./gradlew assembleDebug  # 仅构建
+bash install.sh              # 构建并安装到手机
+./gradlew assembleDebug      # 仅构建
 ./gradlew testDebugUnitTest  # 运行测试
 ```
 
 要求：JDK 17 · Android SDK API 34 · `JAVA_HOME` + `ANDROID_HOME`
 
-**[⬆ English](#english)**
+</details>
 
----
+## 许可证
 
-<a id="english"></a>
-
-## English
-
-> **Pixel + Scroll** — your images flow seamlessly, a local media reader with zero friction
-
-### Features
-
-📂 **Folder browsing** — auto-scan device storage, images & videos organized by folder
-
-📖 **Dual-mode reader**
-- **Continuous scroll** — vertical scrolling, perfect for long images & manga
-- **Pager** — swipe left/right, page by page
-- Pinch zoom · Double-tap reset · Progress slider
-
-🎬 **Video playback** — immersive fullscreen, double-tap to seek, long-press 3× speed
-
-🔍 **Global search** — search images & videos across all folders
-
-🎨 **Three themes** — Light / Dark / AMOLED Black
-
-⚡ **Instant cold start** — cached folder list, no re-scan on launch
-
-🗂️ **Hybrid scanning** — MediaStore first + filesystem supplement, never misses a file
-
-↕️ **Sorting** — name / date / size, ascending / descending, auto-persisted
-
-### Supported Formats
-
-| Images | Videos |
-|--------|--------|
-| JPEG, PNG, WebP, HEIC, AVIF, GIF, SVG, BMP, TIFF | MP4, MKV, AVI, MOV, FLV, RMVB, 3GP, WebM |
-
-### Development
-
-```bash
-bash install.sh          # Build & install to phone
-./gradlew assembleDebug  # Build only
-./gradlew testDebugUnitTest  # Run tests
-```
-
-Requires: JDK 17 · Android SDK API 34 · `JAVA_HOME` + `ANDROID_HOME`
-
-**[⬆ 中文](#中文)**
-
----
-
-## License / 许可证
-
-Personal Non-Commercial / 个人非商业使用
+个人非商业使用
