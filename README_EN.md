@@ -31,6 +31,8 @@
 
 ## Features
 
+🔒 **Fully offline** — no internet, no uploads, no tracking. Your photos stay on your phone.
+
 📂 **Folder browsing** — open and go, images & videos auto-organized by folder
 
 📖 **Dual-mode reader**
