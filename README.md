@@ -5,17 +5,15 @@
 
 # PixScroll
 
-**像素滚动** — 图片在指尖无缝流淌，一滑到底的本地媒体阅读器
-
 [![Android](https://img.shields.io/badge/Android-26%2B-green?logo=android)](https://developer.android.com/about/versions/nougat)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.0-7F52FF?logo=kotlin)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/Jetpack%20Compose-BOM%202025.03-4285F4?logo=googlechrome)](https://developer.android.com/jetpack/compose)
-[![License](https://img.shields.io/badge/License-Non--Commercial-blue)](#许可证)
+[![License](https://img.shields.io/badge/License-Non--Commercial-blue)](#license)
 [![Release](https://img.shields.io/github/v/release/Laecatain/PixScroll)](https://github.com/Laecatain/PixScroll/releases/latest)
 
-**English** | **[中文](README.md)**
+**[English](#english)** | **[中文](#中文)**
 
-**[⬇ 下载 APK](https://github.com/Laecatain/PixScroll/releases/latest)**
+**[⬇ 下载 APK / Download APK](https://github.com/Laecatain/PixScroll/releases/latest)**
 
 </div>
 
@@ -28,7 +26,13 @@
 
 ---
 
-## 功能
+<a id="中文"></a>
+
+## 中文
+
+> **像素滚动** — 图片在指尖无缝流淌，一滑到底的本地媒体阅读器
+
+### 功能
 
 📂 **文件夹浏览** — 自动扫描设备存储，图片/视频分类展示
 
@@ -49,37 +53,73 @@
 
 ↕️ **排序** — 名称 / 日期 / 大小，升序 / 降序，自动持久化
 
-## 支持格式
+### 支持格式
 
 | 图片 | 视频 |
 |------|------|
 | JPEG, PNG, WebP, HEIC, AVIF, GIF, SVG, BMP, TIFF | MP4, MKV, AVI, MOV, FLV, RMVB, 3GP, WebM |
 
-## 下载
-
-[<img src="https://img.shields.io/badge/Download-APK-blue?style=for-the-badge&logo=android" height="40">](https://github.com/Laecatain/PixScroll/releases/latest)
-
-## 开发
-
-### 环境
-
-- JDK 17 (Temurin)
-- Android SDK API 34
-- `JAVA_HOME` + `ANDROID_HOME`
-
-### 构建
+### 开发
 
 ```bash
-# 构建并安装到手机
-bash install.sh
-
-# 仅构建
-./gradlew assembleDebug
-
-# 运行测试
-./gradlew testDebugUnitTest
+bash install.sh          # 构建并安装到手机
+./gradlew assembleDebug  # 仅构建
+./gradlew testDebugUnitTest  # 运行测试
 ```
 
-## 许可证
+要求：JDK 17 · Android SDK API 34 · `JAVA_HOME` + `ANDROID_HOME`
 
-个人非商业使用
+**[⬆ English](#english)**
+
+---
+
+<a id="english"></a>
+
+## English
+
+> **Pixel + Scroll** — your images flow seamlessly, a local media reader with zero friction
+
+### Features
+
+📂 **Folder browsing** — auto-scan device storage, images & videos organized by folder
+
+📖 **Dual-mode reader**
+- **Continuous scroll** — vertical scrolling, perfect for long images & manga
+- **Pager** — swipe left/right, page by page
+- Pinch zoom · Double-tap reset · Progress slider
+
+🎬 **Video playback** — immersive fullscreen, double-tap to seek, long-press 3× speed
+
+🔍 **Global search** — search images & videos across all folders
+
+🎨 **Three themes** — Light / Dark / AMOLED Black
+
+⚡ **Instant cold start** — cached folder list, no re-scan on launch
+
+🗂️ **Hybrid scanning** — MediaStore first + filesystem supplement, never misses a file
+
+↕️ **Sorting** — name / date / size, ascending / descending, auto-persisted
+
+### Supported Formats
+
+| Images | Videos |
+|--------|--------|
+| JPEG, PNG, WebP, HEIC, AVIF, GIF, SVG, BMP, TIFF | MP4, MKV, AVI, MOV, FLV, RMVB, 3GP, WebM |
+
+### Development
+
+```bash
+bash install.sh          # Build & install to phone
+./gradlew assembleDebug  # Build only
+./gradlew testDebugUnitTest  # Run tests
+```
+
+Requires: JDK 17 · Android SDK API 34 · `JAVA_HOME` + `ANDROID_HOME`
+
+**[⬆ 中文](#中文)**
+
+---
+
+## License / 许可证
+
+Personal Non-Commercial / 个人非商业使用
