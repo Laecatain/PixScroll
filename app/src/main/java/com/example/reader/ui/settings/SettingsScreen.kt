@@ -126,6 +126,33 @@ fun SettingsScreen(
                 onSelect = { viewModel.setVideoPlayerPreference(VideoPlayerPreference.valueOf(it)) }
             )
 
+            // Auto-route high-resolution videos directly to the system default player,
+            // bypassing the choice above. Off by default — user must opt in.
+            // Switch handles its own clicks — tap the switch to toggle. (User confirmed
+            // they don't want the whole-row clickable pattern.)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "auto use system player for high-res videos",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        "videos over 1440px on the longest edge skip the choice above",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = state.autoRouteHighResToSystem,
+                    onCheckedChange = { viewModel.setAutoRouteHighResToSystem(it) }
+                )
+            }
+
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
             // Grid columns

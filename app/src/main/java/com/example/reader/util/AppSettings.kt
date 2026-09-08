@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -54,6 +55,7 @@ object PreferenceKeys {
     val COVER_SORT_MODE = stringPreferencesKey("cover_sort_mode")
     val COVER_SORT_ORDER = stringPreferencesKey("cover_sort_order")
     val VIDEO_PLAYER_PREFERENCE = stringPreferencesKey("video_player_preference")
+    val AUTO_ROUTE_HIGH_RES_TO_SYSTEM = booleanPreferencesKey("auto_route_high_res_to_system")
 }
 
 data class AppSettingsData(
@@ -71,7 +73,8 @@ data class AppSettingsData(
     val videoCoverStrategy: String = "EXACT_1S",
     val coverSortMode: String = "DATE",
     val coverSortOrder: String = "DESC",
-    val videoPlayerPreference: String = "IN_APP"
+    val videoPlayerPreference: String = "IN_APP",
+    val autoRouteHighResToSystem: Boolean = false
 )
 
 fun Context.settingsFlow(): Flow<AppSettingsData> = dataStore.data.map { prefs ->
@@ -90,7 +93,8 @@ fun Context.settingsFlow(): Flow<AppSettingsData> = dataStore.data.map { prefs -
         videoCoverStrategy = prefs[PreferenceKeys.VIDEO_COVER_STRATEGY] ?: "EXACT_1S",
         coverSortMode = prefs[PreferenceKeys.COVER_SORT_MODE] ?: "DATE",
         coverSortOrder = prefs[PreferenceKeys.COVER_SORT_ORDER] ?: "DESC",
-        videoPlayerPreference = prefs[PreferenceKeys.VIDEO_PLAYER_PREFERENCE] ?: "IN_APP"
+        videoPlayerPreference = prefs[PreferenceKeys.VIDEO_PLAYER_PREFERENCE] ?: "IN_APP",
+        autoRouteHighResToSystem = prefs[PreferenceKeys.AUTO_ROUTE_HIGH_RES_TO_SYSTEM] ?: false
     )
 }
 
@@ -151,4 +155,8 @@ suspend fun Context.saveCoverSortOrder(order: String) {
 
 suspend fun Context.saveVideoPlayerPreference(preference: String) {
     dataStore.edit { prefs -> prefs[PreferenceKeys.VIDEO_PLAYER_PREFERENCE] = preference }
+}
+
+suspend fun Context.saveAutoRouteHighResToSystem(enabled: Boolean) {
+    dataStore.edit { prefs -> prefs[PreferenceKeys.AUTO_ROUTE_HIGH_RES_TO_SYSTEM] = enabled }
 }

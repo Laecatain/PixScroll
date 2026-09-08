@@ -24,6 +24,7 @@ import com.example.reader.util.saveVideoCoverStrategy
 import com.example.reader.util.saveCoverSortMode
 import com.example.reader.util.saveCoverSortOrder
 import com.example.reader.util.saveVideoPlayerPreference
+import com.example.reader.util.saveAutoRouteHighResToSystem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,7 +45,8 @@ data class SettingsState(
     val videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S,
     val coverSortMode: SortMode = SortMode.DATE,
     val coverSortOrder: SortOrder = SortOrder.DESC,
-    val videoPlayerPreference: VideoPlayerPreference = VideoPlayerPreference.IN_APP
+    val videoPlayerPreference: VideoPlayerPreference = VideoPlayerPreference.IN_APP,
+    val autoRouteHighResToSystem: Boolean = false
 )
 
 class SettingsViewModel(
@@ -79,7 +81,8 @@ class SettingsViewModel(
                 } catch (_: IllegalArgumentException) { VideoCoverStrategy.EXACT_1S },
                 coverSortMode = SortMode.valueOf(prefs[com.example.reader.util.PreferenceKeys.COVER_SORT_MODE] ?: "DATE"),
                 coverSortOrder = SortOrder.valueOf(prefs[com.example.reader.util.PreferenceKeys.COVER_SORT_ORDER] ?: "DESC"),
-                videoPlayerPreference = parseVideoPlayerPreference(prefs[com.example.reader.util.PreferenceKeys.VIDEO_PLAYER_PREFERENCE] ?: "IN_APP")
+                videoPlayerPreference = parseVideoPlayerPreference(prefs[com.example.reader.util.PreferenceKeys.VIDEO_PLAYER_PREFERENCE] ?: "IN_APP"),
+                autoRouteHighResToSystem = prefs[com.example.reader.util.PreferenceKeys.AUTO_ROUTE_HIGH_RES_TO_SYSTEM] ?: false
             )
         }
     }
@@ -152,6 +155,13 @@ class SettingsViewModel(
     fun setVideoPlayerPreference(preference: VideoPlayerPreference) {
         _state.value = _state.value.copy(videoPlayerPreference = preference)
         viewModelScope.launch { application.saveVideoPlayerPreference(preference.name) }
+    }
+
+    /** When enabled, videos with longestEdge > 1440 bypass the user preference and
+     *  open directly in the system default player. Default off — user must opt in. */
+    fun setAutoRouteHighResToSystem(enabled: Boolean) {
+        _state.value = _state.value.copy(autoRouteHighResToSystem = enabled)
+        viewModelScope.launch { application.saveAutoRouteHighResToSystem(enabled) }
     }
 
     class Factory(private val application: Application) : ViewModelProvider.Factory {
