@@ -83,7 +83,10 @@ fun ContinuousScrollReader(
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
-    val isZoomed = scale > 1f
+    // derivedStateOf: pointerInput(Unit) 的 suspend block 只在首次 composition 启动，
+    // 普通 val 会被冻结在首次值（false），导致放大后单指 pan 分支永不触发。
+    // 这里用 derivedStateOf 让 isZoomed 跟着 scale 实时变化。
+    val isZoomed: Boolean by derivedStateOf { scale > 1f }
     val totalCount = mediaItems.size
     val safeInitial = initialIndex.coerceIn(0, (totalCount - 1).coerceAtLeast(0))
     val scope = rememberCoroutineScope()
@@ -208,8 +211,14 @@ fun ContinuousScrollReader(
                             val newScale = (scale * zoomChange).coerceIn(1f, 3f)
                             scale = newScale
                             if (newScale > 1f) {
-                                offsetX += panChange.x
-                                offsetY += panChange.y
+                                // 单指 / 双指 pan 都走这里：用 viewport 尺寸 clamp 边界
+                                // graphicsLayer 缩放的是 Box 节点本身（fillMaxSize），所以
+                                // overhang = viewportSize * (scale - 1) / 2，中心对称 pan。
+                                val vp = listState.layoutInfo.viewportSize
+                                val proposed = Offset(offsetX + panChange.x, offsetY + panChange.y)
+                                val clamped = clampPanOffset(proposed, newScale, vp)
+                                offsetX = clamped.x
+                                offsetY = clamped.y
                             } else {
                                 offsetX = 0f; offsetY = 0f
                             }
@@ -394,6 +403,27 @@ private fun PointerEvent.panChange(): Offset {
     return Offset(
         change.position.x - change.previousPosition.x,
         change.position.y - change.previousPosition.y
+    )
+}
+
+/**
+ * Clamp pan offset so the scaled LazyColumn cannot be dragged past the viewport edges.
+ * graphicsLayer transforms about its default origin (Center), so overhang on each side
+ * is `viewportSize * (scale - 1) / 2`. When `scale <= 1f` no pan is allowed.
+ *
+ * Pure function — JVM-testable.
+ */
+internal fun clampPanOffset(
+    proposed: Offset,
+    scale: Float,
+    viewportSize: androidx.compose.ui.unit.IntSize,
+): Offset {
+    if (scale <= 1f) return Offset.Zero
+    val maxX = viewportSize.width  * (scale - 1f) / 2f
+    val maxY = viewportSize.height * (scale - 1f) / 2f
+    return Offset(
+        proposed.x.coerceIn(-maxX, maxX),
+        proposed.y.coerceIn(-maxY, maxY),
     )
 }
 
