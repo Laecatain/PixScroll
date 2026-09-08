@@ -1,12 +1,16 @@
 ﻿package com.example.reader.navigation
 
+import android.content.ActivityNotFoundException
+import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -25,6 +29,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.reader.ReaderApp
 import com.example.reader.ui.settings.SettingsScreen
 import com.example.reader.util.VideoCoverStrategy
+import com.example.reader.util.VideoPlayerPreference
+import com.example.reader.util.UnsupportedVideoUriException
+import com.example.reader.util.launchSystemPlayer
+import com.example.reader.util.rememberVideoPlayerPreference
+import com.example.reader.util.shouldOpenInApp
 
 object Routes {
     const val FOLDER_LIST = "folder_list"
@@ -53,6 +62,11 @@ fun NavGraph(navController: NavHostController) {
     val folderListViewModel: FolderListViewModel = viewModel(
         factory = FolderListViewModel.Factory(context.applicationContext as ReaderApp)
     )
+
+    // Real-time subscription to the video-player preference — changes apply immediately
+    // without needing to pop back to FOLDER_LIST.
+    val videoPlayerPreference by rememberVideoPlayerPreference()
+
     NavHost(navController = navController, startDestination = Routes.FOLDER_LIST) {
         composable(Routes.FOLDER_LIST) {
             FolderListScreen(
@@ -88,7 +102,7 @@ fun NavGraph(navController: NavHostController) {
                     navController.navigate(Routes.reader(parentId, index, rawMediaType))
                 },
                 onVideoClick = { path, thumbnailPath ->
-                    navController.navigate(Routes.videoPlayer(path, thumbnailPath))
+                    openVideo(context, videoPlayerPreference, Uri.parse(path), thumbnailPath, navController)
                 },
                 onBack = { navController.safePopBackStack() }
             )
@@ -113,7 +127,7 @@ fun NavGraph(navController: NavHostController) {
                 onBack = { navController.safePopBackStack() },
                 onVideoClick = { item ->
                     item.uri?.let { uri ->
-                        navController.navigate(Routes.videoPlayer(uri.toString(), item.thumbnailPath))
+                        openVideo(context, videoPlayerPreference, uri, item.thumbnailPath, navController)
                     }
                 }
             )
@@ -159,7 +173,7 @@ fun NavGraph(navController: NavHostController) {
                 },
                 onVideoClick = { item ->
                     item.uri?.let { uri ->
-                        navController.navigate(Routes.videoPlayer(uri.toString(), item.thumbnailPath))
+                        openVideo(context, videoPlayerPreference, uri, item.thumbnailPath, navController)
                     }
                 },
                 onBack = { navController.safePopBackStack() }
@@ -169,6 +183,38 @@ fun NavGraph(navController: NavHostController) {
         composable(Routes.ABOUT) {
             AboutScreen(onBack = { navController.safePopBackStack() })
         }
+    }
+}
+
+/**
+ * Single decision point for all video-tap call sites.
+ * Honors [VideoPlayerPreference]: IN_APP → navigate to in-app player; SYSTEM → fire
+ * Intent.ACTION_VIEW. If the system has no video player installed, or the URI uses
+ * an unsupported scheme (e.g. raw `file://` from unindexed media), fall back to the
+ * in-app player so the user is never stranded.
+ *
+ * Requires an Activity `context` — startActivity() from a non-Activity context
+ * needs FLAG_ACTIVITY_NEW_TASK and would still break the chooser UX.
+ */
+private fun openVideo(
+    context: Context,
+    preference: VideoPlayerPreference,
+    uri: Uri,
+    thumbnailPath: String?,
+    navController: NavHostController
+) {
+    if (shouldOpenInApp(preference)) {
+        navController.navigate(Routes.videoPlayer(uri.toString(), thumbnailPath))
+        return
+    }
+    try {
+        launchSystemPlayer(context, uri)
+    } catch (e: ActivityNotFoundException) {
+        Log.w("NavGraph", "no system video player installed, falling back to in-app")
+        navController.navigate(Routes.videoPlayer(uri.toString(), thumbnailPath))
+    } catch (e: UnsupportedVideoUriException) {
+        Log.w("NavGraph", "unsupported URI scheme (${e.uri.scheme}), falling back to in-app")
+        navController.navigate(Routes.videoPlayer(uri.toString(), thumbnailPath))
     }
 }
 

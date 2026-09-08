@@ -17,10 +17,13 @@ import com.example.reader.util.saveVideoSortMode
 import com.example.reader.util.saveVideoSortOrder
 import com.example.reader.util.FolderCoverStrategy
 import com.example.reader.util.VideoCoverStrategy
+import com.example.reader.util.VideoPlayerPreference
+import com.example.reader.util.parseVideoPlayerPreference
 import com.example.reader.util.saveFolderCoverStrategy
 import com.example.reader.util.saveVideoCoverStrategy
 import com.example.reader.util.saveCoverSortMode
 import com.example.reader.util.saveCoverSortOrder
+import com.example.reader.util.saveVideoPlayerPreference
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,7 +43,8 @@ data class SettingsState(
     val folderCoverStrategy: FolderCoverStrategy = FolderCoverStrategy.LATEST,
     val videoCoverStrategy: VideoCoverStrategy = VideoCoverStrategy.EXACT_1S,
     val coverSortMode: SortMode = SortMode.DATE,
-    val coverSortOrder: SortOrder = SortOrder.DESC
+    val coverSortOrder: SortOrder = SortOrder.DESC,
+    val videoPlayerPreference: VideoPlayerPreference = VideoPlayerPreference.IN_APP
 )
 
 class SettingsViewModel(
@@ -74,7 +78,8 @@ class SettingsViewModel(
                     VideoCoverStrategy.valueOf(prefs[com.example.reader.util.PreferenceKeys.VIDEO_COVER_STRATEGY] ?: "EXACT_1S")
                 } catch (_: IllegalArgumentException) { VideoCoverStrategy.EXACT_1S },
                 coverSortMode = SortMode.valueOf(prefs[com.example.reader.util.PreferenceKeys.COVER_SORT_MODE] ?: "DATE"),
-                coverSortOrder = SortOrder.valueOf(prefs[com.example.reader.util.PreferenceKeys.COVER_SORT_ORDER] ?: "DESC")
+                coverSortOrder = SortOrder.valueOf(prefs[com.example.reader.util.PreferenceKeys.COVER_SORT_ORDER] ?: "DESC"),
+                videoPlayerPreference = parseVideoPlayerPreference(prefs[com.example.reader.util.PreferenceKeys.VIDEO_PLAYER_PREFERENCE] ?: "IN_APP")
             )
         }
     }
@@ -141,6 +146,12 @@ class SettingsViewModel(
     fun setCoverSortOrder(order: SortOrder) {
         _state.value = _state.value.copy(coverSortOrder = order)
         viewModelScope.launch { application.saveCoverSortOrder(order.name) }
+    }
+
+    /** Video player target — in-app or system */
+    fun setVideoPlayerPreference(preference: VideoPlayerPreference) {
+        _state.value = _state.value.copy(videoPlayerPreference = preference)
+        viewModelScope.launch { application.saveVideoPlayerPreference(preference.name) }
     }
 
     class Factory(private val application: Application) : ViewModelProvider.Factory {

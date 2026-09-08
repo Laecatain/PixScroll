@@ -43,6 +43,8 @@ import com.example.reader.util.PreferenceKeys
 import com.example.reader.util.VideoCoverStrategy
 import com.example.reader.util.ThumbnailManager
 import com.example.reader.util.dataStore
+import com.example.reader.util.rememberVideoPlayerPreference
+import com.example.reader.util.shouldOpenInApp
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
@@ -93,6 +95,9 @@ fun MediaGridScreen(
             }
         } catch (_: Exception) { 3 }
     }
+
+    // Video player preference — gated use in onClick below to skip prewarm when SYSTEM
+    val videoPlayerPreference by rememberVideoPlayerPreference()
 
     Scaffold(
         topBar = {
@@ -189,11 +194,18 @@ fun MediaGridScreen(
                                     if (item.isVideo) {
                                         if (isNavigating) return@MediaGridCell
                                         isNavigating = true
-                                        viewModel.stopAllWork()
-                                        item.uri?.let { uri ->
-                                            val uriStr = uri.toString()
-                                            PlayerPreloader.prewarm(context, uriStr, item.width, item.height)
-                                            onVideoClick(uriStr, item.thumbnailPath)
+                                        // Only the in-app path needs ExoPlayer prewarm + thumbnail backfill cancel
+                                        if (shouldOpenInApp(videoPlayerPreference)) {
+                                            viewModel.stopAllWork()
+                                            item.uri?.let { uri ->
+                                                val uriStr = uri.toString()
+                                                PlayerPreloader.prewarm(context, uriStr, item.width, item.height)
+                                                onVideoClick(uriStr, item.thumbnailPath)
+                                            }
+                                        } else {
+                                            item.uri?.let { uri ->
+                                                onVideoClick(uri.toString(), item.thumbnailPath)
+                                            }
                                         }
                                     } else {
                                         onImageClick(index)

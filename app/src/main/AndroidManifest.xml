@@ -6,6 +6,14 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!-- Required on API 30+ for ACTION_VIEW with video/* to resolve candidate players -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="video/*" />
+        </intent>
+    </queries>
+
     <application
         android:name=".ReaderApp"
         android:allowBackup="true"

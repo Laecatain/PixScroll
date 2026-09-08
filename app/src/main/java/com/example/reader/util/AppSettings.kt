@@ -25,6 +25,14 @@ enum class VideoCoverStrategy {
     CLOSEST_KEYFRAME
 }
 
+/** Which player to open when the user taps a video */
+enum class VideoPlayerPreference {
+    /** Use the in-app ExoPlayer (default) */
+    IN_APP,
+    /** Hand off to a system-installed video player via Intent.ACTION_VIEW */
+    SYSTEM
+}
+
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "reader_settings")
 
@@ -43,6 +51,7 @@ object PreferenceKeys {
     val VIDEO_COVER_STRATEGY = stringPreferencesKey("video_cover_strategy")
     val COVER_SORT_MODE = stringPreferencesKey("cover_sort_mode")
     val COVER_SORT_ORDER = stringPreferencesKey("cover_sort_order")
+    val VIDEO_PLAYER_PREFERENCE = stringPreferencesKey("video_player_preference")
 }
 
 data class AppSettingsData(
@@ -59,7 +68,8 @@ data class AppSettingsData(
     val folderCoverStrategy: String = "LATEST",
     val videoCoverStrategy: String = "EXACT_1S",
     val coverSortMode: String = "DATE",
-    val coverSortOrder: String = "DESC"
+    val coverSortOrder: String = "DESC",
+    val videoPlayerPreference: String = "IN_APP"
 )
 
 fun Context.settingsFlow(): Flow<AppSettingsData> = dataStore.data.map { prefs ->
@@ -77,7 +87,8 @@ fun Context.settingsFlow(): Flow<AppSettingsData> = dataStore.data.map { prefs -
         folderCoverStrategy = prefs[PreferenceKeys.FOLDER_COVER_STRATEGY] ?: "LATEST",
         videoCoverStrategy = prefs[PreferenceKeys.VIDEO_COVER_STRATEGY] ?: "EXACT_1S",
         coverSortMode = prefs[PreferenceKeys.COVER_SORT_MODE] ?: "DATE",
-        coverSortOrder = prefs[PreferenceKeys.COVER_SORT_ORDER] ?: "DESC"
+        coverSortOrder = prefs[PreferenceKeys.COVER_SORT_ORDER] ?: "DESC",
+        videoPlayerPreference = prefs[PreferenceKeys.VIDEO_PLAYER_PREFERENCE] ?: "IN_APP"
     )
 }
 
@@ -134,4 +145,8 @@ suspend fun Context.saveCoverSortMode(mode: String) {
 
 suspend fun Context.saveCoverSortOrder(order: String) {
     dataStore.edit { prefs -> prefs[PreferenceKeys.COVER_SORT_ORDER] = order }
+}
+
+suspend fun Context.saveVideoPlayerPreference(preference: String) {
+    dataStore.edit { prefs -> prefs[PreferenceKeys.VIDEO_PLAYER_PREFERENCE] = preference }
 }

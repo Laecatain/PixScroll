@@ -44,6 +44,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.reader.util.formatTime
+import com.example.reader.util.launchSystemPlayer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.io.File
@@ -388,13 +389,7 @@ fun MediaPlayerScreen(
                     Spacer(Modifier.height(12.dp))
                     OutlinedButton(onClick = {
                         try {
-                            val intent = android.content.Intent(
-                                android.content.Intent.ACTION_VIEW
-                            ).apply {
-                                setDataAndType(videoUri, "video/*")
-                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(intent)
+                            launchSystemPlayer(context, videoUri)
                         } catch (_: Exception) {
                             errorMessage = "没有可用的外部播放器"
                         }

@@ -53,6 +53,7 @@ import com.example.reader.util.PlayerPreloader
 import com.example.reader.util.TakeResult
 import com.example.reader.util.VideoPlayerFactory
 import com.example.reader.util.formatTime
+import com.example.reader.util.launchSystemPlayer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.io.File
@@ -484,15 +485,7 @@ fun VideoPlayerScreen(
                     Spacer(Modifier.height(12.dp))
                     OutlinedButton(onClick = {
                         try {
-                            val viewIntent = android.content.Intent(
-                                android.content.Intent.ACTION_VIEW
-                            ).apply {
-                                setDataAndType(videoUri, "video/*")
-                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(
-                                android.content.Intent.createChooser(viewIntent, "选择播放器")
-                            )
+                            launchSystemPlayer(context, videoUri)
                         } catch (e: Exception) {
                             Log.e("VideoPlayer", "external player failed", e)
                             errorMessage = "没有可用的外部播放器"
@@ -636,15 +629,7 @@ fun VideoPlayerScreen(
                     .padding(top = 48.dp)
                     .clickable {
                         try {
-                            val viewIntent = android.content.Intent(
-                                android.content.Intent.ACTION_VIEW
-                            ).apply {
-                                setDataAndType(videoUri, "video/*")
-                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(
-                                android.content.Intent.createChooser(viewIntent, "选择播放器")
-                            )
+                            launchSystemPlayer(context, videoUri)
                         } catch (e: Exception) {
                             Log.e("VideoPlayer", "external player failed", e)
                         }

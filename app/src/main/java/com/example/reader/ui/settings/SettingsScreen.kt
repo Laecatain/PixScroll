@@ -25,6 +25,7 @@ import com.example.reader.data.repository.SortOrder
 import com.example.reader.ui.theme.ThemeState
 import com.example.reader.util.FolderCoverStrategy
 import com.example.reader.util.VideoCoverStrategy
+import com.example.reader.util.VideoPlayerPreference
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,6 +109,20 @@ fun SettingsScreen(
                     val newOrder = if (state.videoSortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
                     viewModel.setVideoSortOrder(newOrder)
                 }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+            // Video player preference
+            SettingsSectionHeader("video player")
+            CoverStrategyPicker(
+                label = "open videos with",
+                currentStrategy = state.videoPlayerPreference.name,
+                options = listOf(
+                    "IN_APP" to "in-app player",
+                    "SYSTEM" to "system player (chooser)"
+                ),
+                onSelect = { viewModel.setVideoPlayerPreference(VideoPlayerPreference.valueOf(it)) }
             )
 
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
