@@ -12,10 +12,17 @@ import androidx.compose.ui.platform.LocalContext
 
 /**
  * Pure decision function — JVM-testable, no Android types.
- * Returns true if the user wants the in-app ExoPlayer; false for system player.
+ * Returns true if the user wants the in-app ExoPlayer; false for any system option.
  */
 fun shouldOpenInApp(preference: VideoPlayerPreference): Boolean =
     preference == VideoPlayerPreference.IN_APP
+
+/**
+ * Pure decision function — JVM-testable.
+ * True if the system-handling path should show a chooser surface (vs. default-only).
+ */
+fun shouldShowChooser(preference: VideoPlayerPreference): Boolean =
+    preference == VideoPlayerPreference.SYSTEM_CHOOSER
 
 /**
  * Compose helper — reactive subscription to the video-player preference.
@@ -67,7 +74,12 @@ fun parseVideoPlayerPreference(raw: String): VideoPlayerPreference =
 class UnsupportedVideoUriException(val uri: Uri) :
     IllegalArgumentException("unsupported video URI scheme: ${uri.scheme}")
 
-fun launchSystemPlayer(context: Context, videoUri: Uri) {
+/**
+ * @param showChooser if true, wraps the intent in `Intent.createChooser` so the
+ *   user can pick a player every time. If false, dispatches directly so the
+ *   system uses the user's default video player.
+ */
+fun launchSystemPlayer(context: Context, videoUri: Uri, showChooser: Boolean = true) {
     if (videoUri.scheme != "content") {
         throw UnsupportedVideoUriException(videoUri)
     }
@@ -76,7 +88,12 @@ fun launchSystemPlayer(context: Context, videoUri: Uri) {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     try {
-        context.startActivity(Intent.createChooser(viewIntent, "选择播放器"))
+        val dispatch = if (showChooser) {
+            Intent.createChooser(viewIntent, "选择播放器")
+        } else {
+            viewIntent
+        }
+        context.startActivity(dispatch)
     } catch (e: ActivityNotFoundException) {
         Log.w("VideoPlayerLauncher", "no system video player available, scheme=${videoUri.scheme}")
         throw e

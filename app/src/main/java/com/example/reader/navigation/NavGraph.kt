@@ -34,6 +34,7 @@ import com.example.reader.util.UnsupportedVideoUriException
 import com.example.reader.util.launchSystemPlayer
 import com.example.reader.util.rememberVideoPlayerPreference
 import com.example.reader.util.shouldOpenInApp
+import com.example.reader.util.shouldShowChooser
 
 object Routes {
     const val FOLDER_LIST = "folder_list"
@@ -208,7 +209,7 @@ private fun openVideo(
         return
     }
     try {
-        launchSystemPlayer(context, uri)
+        launchSystemPlayer(context, uri, showChooser = shouldShowChooser(preference))
     } catch (e: ActivityNotFoundException) {
         Log.w("NavGraph", "no system video player installed, falling back to in-app")
         navController.navigate(Routes.videoPlayer(uri.toString(), thumbnailPath))

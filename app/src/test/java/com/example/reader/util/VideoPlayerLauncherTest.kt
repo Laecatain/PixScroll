@@ -13,8 +13,17 @@ class VideoPlayerLauncherTest {
     }
 
     @Test
-    fun `SYSTEM routes to system`() {
-        assertFalse(shouldOpenInApp(VideoPlayerPreference.SYSTEM))
+    fun `SYSTEM_DEFAULT routes to system without in-app`() {
+        assertFalse(shouldOpenInApp(VideoPlayerPreference.SYSTEM_DEFAULT))
+        assertFalse("SYSTEM_DEFAULT should bypass the chooser surface",
+            shouldShowChooser(VideoPlayerPreference.SYSTEM_DEFAULT))
+    }
+
+    @Test
+    fun `SYSTEM_CHOOSER routes to system and shows chooser`() {
+        assertFalse(shouldOpenInApp(VideoPlayerPreference.SYSTEM_CHOOSER))
+        assertTrue("SYSTEM_CHOOSER must show chooser so user can pick each time",
+            shouldShowChooser(VideoPlayerPreference.SYSTEM_CHOOSER))
     }
 
     @Test
@@ -22,12 +31,16 @@ class VideoPlayerLauncherTest {
         // Uses the same parseVideoPlayerPreference the production callers use.
         assertEquals(VideoPlayerPreference.IN_APP, parseVideoPlayerPreference("GARBAGE"))
         assertEquals(VideoPlayerPreference.IN_APP, parseVideoPlayerPreference(""))
+        // Old "SYSTEM" string (from the previous version) also falls back to IN_APP,
+        // which is safer than guessing between SYSTEM_DEFAULT and SYSTEM_CHOOSER.
+        assertEquals(VideoPlayerPreference.IN_APP, parseVideoPlayerPreference("SYSTEM"))
     }
 
     @Test
     fun `valid enum strings parse correctly`() {
         assertEquals(VideoPlayerPreference.IN_APP, parseVideoPlayerPreference("IN_APP"))
-        assertEquals(VideoPlayerPreference.SYSTEM, parseVideoPlayerPreference("SYSTEM"))
+        assertEquals(VideoPlayerPreference.SYSTEM_DEFAULT, parseVideoPlayerPreference("SYSTEM_DEFAULT"))
+        assertEquals(VideoPlayerPreference.SYSTEM_CHOOSER, parseVideoPlayerPreference("SYSTEM_CHOOSER"))
     }
 
     @Test

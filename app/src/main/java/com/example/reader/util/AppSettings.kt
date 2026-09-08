@@ -29,8 +29,10 @@ enum class VideoCoverStrategy {
 enum class VideoPlayerPreference {
     /** Use the in-app ExoPlayer (default) */
     IN_APP,
-    /** Hand off to a system-installed video player via Intent.ACTION_VIEW */
-    SYSTEM
+    /** Hand off to the system's default video player (no chooser surface) */
+    SYSTEM_DEFAULT,
+    /** Show a chooser every time so the user can pick a non-default player */
+    SYSTEM_CHOOSER
 }
 
 

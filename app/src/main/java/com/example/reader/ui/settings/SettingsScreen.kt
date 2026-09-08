@@ -120,7 +120,8 @@ fun SettingsScreen(
                 currentStrategy = state.videoPlayerPreference.name,
                 options = listOf(
                     "IN_APP" to "in-app player",
-                    "SYSTEM" to "system player (chooser)"
+                    "SYSTEM_DEFAULT" to "system default player",
+                    "SYSTEM_CHOOSER" to "system player (ask every time)"
                 ),
                 onSelect = { viewModel.setVideoPlayerPreference(VideoPlayerPreference.valueOf(it)) }
             )
